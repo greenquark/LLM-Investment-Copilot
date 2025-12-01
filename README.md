@@ -32,6 +32,35 @@ This is an LLM-powered investment copilot framework designed for:
 
 4. Config files (`config/env.*.yaml` and `config/strategy.*.yaml`) contain placeholders and will automatically load secrets from `config/secrets.yaml` when available.
 
+## Creating Custom Strategies
+
+To create your own trading strategy:
+
+1. **Copy the example skeleton**:
+   ```bash
+   cp core/strategy/example_strategy.py core/strategy/my_strategy.py
+   cp config/strategy.example.yaml config/strategy.my_strategy.yaml
+   ```
+
+2. **Rename the class** in `my_strategy.py`:
+   - Rename `ExampleStrategy` to `MyStrategy`
+   - Rename `ExampleStrategyConfig` to `MyStrategyConfig`
+   - Update the `from_dict` method if needed
+
+3. **Implement your strategy logic**:
+   - `on_start()`: Initialize indicators, load historical data
+   - `on_decision()`: Main trading logic - fetch data, calculate signals, execute trades
+   - `on_end()`: Cleanup, close positions, generate reports
+
+4. **Update .gitignore** to exclude your implementation:
+   ```
+   core/strategy/my_strategy.py
+   ```
+
+5. **Create a backtest script** (see `scripts/run_backtest_*.py` for examples)
+
+See `core/strategy/example_strategy.py` for detailed documentation and code structure.
+
 ## Structure
 
 - `core/` — Python framework code (data, execution, strategies, backtest, live)

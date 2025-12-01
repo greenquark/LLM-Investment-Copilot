@@ -1,0 +1,27 @@
+# Example Strategy Configuration Template
+# 
+# This is a template showing the structure of a strategy configuration file.
+# Copy this file and rename it to match your strategy (e.g., strategy.my_strategy.yaml)
+#
+# The configuration is loaded by scripts and merged with secrets from config/secrets.yaml
+
+# Trading symbol
+symbol: "AAPL"  # Change to your target symbol
+
+# Timeframe for the strategy
+timeframe: "1D"  # Options: 15m, 30m, 1H, 2H, 4H, 1D
+                 # Note: env.backtest.yaml can override this for backtests
+
+# Strategy-specific parameters
+# Customize these based on your strategy's ExampleStrategyConfig class
+lookback_period: 20      # Number of bars to look back
+threshold: 0.05           # Threshold for signal generation (5%)
+max_position_size: 1.0    # Maximum position size as fraction of portfolio (100%)
+
+# Additional strategy parameters can be added here
+# For example:
+# - indicator_periods
+# - entry/exit conditions
+# - risk management parameters
+# - etc.
+
