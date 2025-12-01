@@ -2,7 +2,7 @@
 Plotly-based chart visualization for trading data.
 
 This module provides a standalone chart builder similar to fastapi_stockchart/main.py,
-but adapted to work with the trading-agent's data structures (Bar objects).
+but adapted to work with the LLM-Investment-Copilot's data structures (Bar objects).
 
 Features:
 - Multi-panel charts (Price, Volume, RSI)

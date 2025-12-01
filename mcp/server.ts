@@ -8,7 +8,7 @@ const execFileAsync = promisify(execFile);
 
 const server = new Server(
   {
-    name: "trading-agent-mcp",
+    name: "llm-investment-copilot-mcp",
     version: "0.1.0",
   },
   {

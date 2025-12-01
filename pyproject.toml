@@ -1,5 +1,5 @@
 [project]
-name = "trading-agent"
+name = "LLM-Investment-Copilot"
 version = "0.1.0"
 description = "Wheel strategy trading framework with MarketData.app backtesting and moomoo live trading."
 requires-python = ">=3.11"

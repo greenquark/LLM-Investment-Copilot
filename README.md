@@ -1,6 +1,6 @@
-# Trading Agent Framework
+# LLM Investment Copilot
 
-This is a scaffold of a trading agent framework designed for:
+This is an LLM-powered investment copilot framework designed for:
 
 - **Backtesting** using MarketData.app
 - **Live trading** using moomoo / Futu API
