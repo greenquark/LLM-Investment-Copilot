@@ -1,0 +1,61 @@
+# Leveraged ETF Volatility Swing Strategy Configuration
+# 
+# This strategy works with any bull/bear leveraged ETF pair. Examples:
+# - SOXL/SOXS (semiconductors, regime: SOXX)
+# - TQQQ/SQQQ (NASDAQ, regime: QQQ)
+# - UPRO/SPXU (S&P 500, regime: SPY)
+# - TNA/TZA (small caps, regime: IWM)
+# - LABU/LABD (biotech, regime: XBI)
+
+# Regime detection
+regime_symbol: SOXX  # Underlying index for regime detection (e.g., SOXX, QQQ, SPY, IWM, XBI)
+ema_fast: 20
+ema_slow: 50
+
+# Trading instruments
+bull_etf_symbol: SOXL  # Bull leveraged ETF (3x long, e.g., SOXL, TQQQ, UPRO, TNA, LABU)
+bear_etf_symbol: SOXS  # Bear leveraged ETF (3x short, e.g., SOXS, SQQQ, SPXU, TZA, LABD)
+
+# Indicator parameters
+bb_length: 20
+bb_std: 2.0
+atr_length: 14
+rsi_fast: 3  # Fast RSI period (2-3)
+rsi_slow: 14  # Slow RSI period
+volume_ma_length: 20
+
+# Setup conditions (relaxed for more signals)
+rsi_fast_threshold: 15.0  # RSI fast must be < this (relaxed from 10.0)
+rsi_slow_threshold: 54.0  # RSI slow must be < this (relaxed from 45.0)
+volume_threshold: 0.5  # Volume must be >= 50% of 20-day average (relaxed from 0.7)
+atr_support_range_min: 0.5  # Min ATR distance from support
+atr_support_range_max: 1.2  # Max ATR distance from support (relaxed from 0.8)
+
+# Entry ladder parameters
+entry_ladder_1_pct: 0.6  # 60% of position at first entry
+entry_ladder_1_atr_offset: 0.3  # First entry: P_ref - 0.3×ATR
+entry_ladder_2_pct: 0.4  # 40% of position at second entry
+entry_ladder_2_atr_offset: 0.7  # Second entry: P_ref - 0.7×ATR
+
+# Exit parameters (ATR-based)
+stop_atr_multiple: 1.0  # Stop loss: -1 ATR
+target_1_atr_multiple: 1.0  # First target: +1 ATR (sell 60%)
+target_2_atr_multiple: 1.5  # Second target: +1.5 ATR (sell 40%)
+
+# Forced exit
+max_holding_days: 5  # Close position after N trading days
+
+# Position sizing
+risk_per_trade_pct: 0.75  # Risk 0.75% of equity per trade
+kelly_fraction: 0.25  # Use 0.25×Kelly for position sizing
+target_probability: 0.55  # Probability of hitting +1.5 ATR target (p2)
+
+# Weekly filter
+weekly_ma_length: 10  # 10-week MA for weekly filter
+
+# Timeframe
+timeframe: 1D  # Daily bars
+
+# Capital deployment
+capital_deployment_pct: 1.0  # Percentage of available capital to deploy per trade (0.0 to 1.0). 1.0 = 100% for testing
+

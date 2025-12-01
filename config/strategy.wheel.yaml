@@ -1,0 +1,9 @@
+symbol: AAPL
+max_csp_contracts: 4
+max_cc_contracts: 4
+roll_dte_threshold: 5
+
+bias_rules:
+  # Example rules - replace with your real DBS logic
+  ma_bullish: "ma20 > ma60"
+  ma_bearish: "ma20 < ma60"

@@ -1,0 +1,18 @@
+symbol: SOXL
+
+timeframe: "1D"          # env.backtest.yaml can override this
+
+lookback_bars: 250
+slope_window: 60
+ma_short: 20
+ma_medium: 50
+ma_long: 200
+rsi_length: 14
+
+llm_model: "gpt-5-mini"
+llm_temperature: 0.0
+use_llm: true            # set false for cheap large backtests
+openai_api_key: "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"
+
+enable_trading: false    # keep off; DBS2.0 will actually trade
+capital_deployment_pct: 1.0
