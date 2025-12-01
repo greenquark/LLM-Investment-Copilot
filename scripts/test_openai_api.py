@@ -17,6 +17,8 @@ import yaml
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+from core.utils.config_loader import load_config_with_secrets
+
 
 async def test_openai_api():
     """Test OpenAI API setup and make a simple call."""
@@ -48,17 +50,16 @@ async def test_openai_api():
     print("\n[2] Checking API key configuration...")
     api_key = None
     
-    # Try to read from config file
+    # Try to read from config file (with secrets merged)
     config_file = project_root / "config" / "strategy.llm_trend_detection.yaml"
     if config_file.exists():
         try:
-            with open(config_file) as f:
-                config = yaml.safe_load(f)
-                api_key = config.get("openai_api_key")
-                if api_key:
-                    print("  ✓ API key found in config file")
-                else:
-                    print("  - No API key in config file")
+            config = load_config_with_secrets(config_file, strategy_name="llm_trend_detection")
+            api_key = config.get("openai_api_key")
+            if api_key and api_key != "YOUR_OPENAI_API_KEY":
+                print("  ✓ API key found in config file (with secrets)")
+            else:
+                print("  - No API key in config file or secrets")
         except Exception as e:
             print(f"  - Could not read config file: {e}")
     
@@ -110,9 +111,8 @@ async def test_openai_api():
     preferred_model = None
     if config_file.exists():
         try:
-            with open(config_file) as f:
-                config = yaml.safe_load(f)
-                preferred_model = config.get("llm_model")
+            config = load_config_with_secrets(config_file, strategy_name="llm_trend_detection")
+            preferred_model = config.get("llm_model")
                 if preferred_model and preferred_model not in models_to_try:
                     # Add user's preferred model to the front of the list
                     models_to_try.insert(0, preferred_model)

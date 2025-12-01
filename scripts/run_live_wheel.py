@@ -8,12 +8,17 @@ from core.portfolio.portfolio import Portfolio, PortfolioState
 from core.strategy.wheel import WheelStrategy, WheelStrategyConfig
 from core.live.engine import LiveEngine, LiveEngineConfig
 from core.utils.logging import Logger
+from core.utils.config_loader import load_config_with_secrets
 
 async def main():
-    with open("config/env.live.yaml") as f:
-        env = yaml.safe_load(f)
-    with open("config/strategy.wheel.yaml") as f:
-        strat_cfg_raw = yaml.safe_load(f)
+    from pathlib import Path
+    config_dir = Path("config")
+    env_file = config_dir / "env.live.yaml"
+    strategy_file = config_dir / "strategy.wheel.yaml"
+    
+    # Load configs with secrets merged in
+    env = load_config_with_secrets(env_file)
+    strat_cfg_raw = load_config_with_secrets(strategy_file)
 
     symbol = strat_cfg_raw["symbol"]
     moo_cfg = env["moomoo"]

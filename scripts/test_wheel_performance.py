@@ -10,18 +10,24 @@ from core.backtest.engine import BacktestEngine
 from core.backtest.benchmarks import run_buy_and_hold
 from core.strategy.wheel import WheelStrategy, WheelStrategyConfig
 from core.utils.logging import Logger
+from core.utils.config_loader import load_config_with_secrets
 
 async def main():
-    with open("config/env.backtest.yaml") as f:
-        env = yaml.safe_load(f)
-    with open("config/strategy.wheel.yaml") as f:
-        strat_cfg_raw = yaml.safe_load(f)
+    from pathlib import Path
+    config_dir = Path("config")
+    env_file = config_dir / "env.backtest.yaml"
+    strategy_file = config_dir / "strategy.wheel.yaml"
+    
+    # Load configs with secrets merged in
+    env = load_config_with_secrets(env_file)
+    strat_cfg_raw = load_config_with_secrets(strategy_file)
 
     symbol = strat_cfg_raw["symbol"]
-    mkt_cfg = env["marketdata"]
+    # Use new data_sources structure
+    mkt_cfg = env.get("data_sources", {}).get("marketdata_app", {})
     bt_cfg = env["backtest"]
 
-    data_engine = MarketDataAppAdapter(api_token=mkt_cfg["api_token"])
+    data_engine = MarketDataAppAdapter(api_token=mkt_cfg.get("api_token", ""))
     wheel_view = WheelDataView(data_engine, symbol)
     strat_cfg = WheelStrategyConfig(strat_cfg_raw)
 

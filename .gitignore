@@ -54,4 +54,8 @@ Thumbs.db
 *.env
 config/*.secret.yaml
 config/*.local.yaml
+# Secrets file - contains actual API tokens - never commit this!
+config/secrets.yaml
+/secrets.yaml
+**/secrets.yaml
 

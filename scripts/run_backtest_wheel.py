@@ -15,6 +15,7 @@ from core.backtest.scheduler import DecisionScheduler
 from core.backtest.engine import BacktestEngine
 from core.strategy.wheel import WheelStrategy, WheelStrategyConfig
 from core.utils.logging import Logger
+from core.utils.config_loader import load_config_with_secrets
 
 async def main():
     # Use absolute paths for config files
@@ -27,10 +28,9 @@ async def main():
     if not strategy_file.exists():
         raise FileNotFoundError(f"Config file not found: {strategy_file}")
     
-    with open(env_file) as f:
-        env = yaml.safe_load(f)
-    with open(strategy_file) as f:
-        strat_cfg_raw = yaml.safe_load(f)
+    # Load configs with secrets merged in
+    env = load_config_with_secrets(env_file)
+    strat_cfg_raw = load_config_with_secrets(strategy_file)
     
     # Validate required config keys
     if "backtest" not in env:

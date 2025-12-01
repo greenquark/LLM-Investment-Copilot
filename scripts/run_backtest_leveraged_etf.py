@@ -43,6 +43,7 @@ from core.backtest.engine import BacktestEngine
 from core.backtest.benchmarks import run_buy_and_hold
 from core.strategy.leveraged_etf_vol_swing import LeveragedETFVolSwingStrategy, LeveragedETFVolSwingConfig
 from core.utils.logging import Logger
+from core.utils.config_loader import load_config_with_secrets
 from core.visualization import PlotlyChartVisualizer
 
 
@@ -58,10 +59,9 @@ async def main(use_local_chart: bool = False):
     if not strategy_file.exists():
         raise FileNotFoundError(f"Strategy config file not found: {strategy_file}")
     
-    with open(env_file) as f:
-        env = yaml.safe_load(f)
-    with open(strategy_file) as f:
-        strat_cfg_raw = yaml.safe_load(f)
+    # Load configs with secrets merged in
+    env = load_config_with_secrets(env_file)
+    strat_cfg_raw = load_config_with_secrets(strategy_file)
     
     # Validate required config keys
     if "backtest" not in env:

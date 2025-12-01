@@ -10,7 +10,27 @@ This is an LLM-powered investment copilot framework designed for:
 > NOTE: This is a skeleton project. You still need to:
 > - Plug in your actual Wheel strategy canvas logic into `core/strategy/wheel.py`
 > - Wire real moomoo / futu OpenAPI authentication and subscription details
-> - Provide your own MarketData.app API token in `config/env.backtest.yaml`
+> - Set up your API tokens (see Configuration section below)
+
+## Configuration
+
+### API Tokens and Secrets
+
+**Important**: Never commit API tokens to version control. This project uses a separate `secrets.yaml` file that is gitignored.
+
+1. **Copy the secrets template**:
+   ```bash
+   cp config/secrets.yaml.example config/secrets.yaml
+   ```
+
+2. **Fill in your API tokens** in `config/secrets.yaml`:
+   - `data_sources.marketdata_app.api_token` - Your MarketData.app API token
+   - `strategies.llm_trend_detection.openai_api_key` - Your OpenAI API key
+   - `moomoo.account_id` - Your Moomoo account ID (for live trading)
+
+3. The `config/secrets.yaml` file is automatically gitignored and will never be committed.
+
+4. Config files (`config/env.*.yaml` and `config/strategy.*.yaml`) contain placeholders and will automatically load secrets from `config/secrets.yaml` when available.
 
 ## Structure
 
