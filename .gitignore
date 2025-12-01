@@ -35,6 +35,13 @@ ENV/
 # Data cache
 data_cache/
 
+# Strategy implementation files (exclude from git)
+# Keep base.py and __init__.py, but ignore actual strategy implementations
+core/strategy/leveraged_etf_vol_swing.py
+core/strategy/llm_trend_detection.py
+core/strategy/mystic_pulse.py
+core/strategy/wheel.py
+
 # Logs
 *.log
 
