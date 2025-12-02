@@ -26,18 +26,30 @@ THEMES = {
         "grid_color": "#303030",
         "axis_color": "#aaaaaa",
         "text_color": "#ffffff",
-        "candle_up": "#00c08b",      # teal
-        "candle_down": "#ff4d4f",    # red
+        "candle_up": "#00c08b",
+        "candle_down": "#ff4d4f",
         "volume_up": "#00c08b",
         "volume_down": "#ff4d4f",
-        "buy_signal": "#00FF66",     # green
-        "sell_signal": "#FF1A1A",    # red
-        "indicator_pos": "#00c08b",  # teal for positive
-        "indicator_neg": "#ff4d4f",  # red for negative
-        "equity_line": "#FFD700",    # gold
-        "boll_mid": "#ffa726",       # Bollinger Middle Band
-        "boll_up": "#66bb6a",        # Bollinger Upper Band
-        "boll_low": "#9575cd",       # Bollinger Lower Band
+        "buy_signal": "#00FF66",
+        "sell_signal": "#FF1A1A",
+        "indicator_pos": "#00c08b",
+        "indicator_neg": "#ff4d4f",
+        "equity_line": "#FFD700",
+        "ma_colors": {
+            5:  "#f6c453",
+            20: "#00bcd4",
+            60: "#b388ff",
+            120: "#ff80ab",
+            250: "#ffffff",
+        },
+        "boll_mid": "#ffa726",
+        "boll_up": "#66bb6a",
+        "boll_low": "#9575cd",
+        "rsi_colors": {
+            6:  "#f6c453",
+            14: "#ff80ff",
+            24: "#80d8ff",
+        },
     },
     "tradingview": {
         "bg_color": "#131722",
@@ -54,9 +66,21 @@ THEMES = {
         "indicator_pos": "#26a69a",
         "indicator_neg": "#ef5350",
         "equity_line": "#ffa726",
-        "boll_mid": "#ffb74d",       # Bollinger Middle Band
-        "boll_up": "#81c784",        # Bollinger Upper Band
-        "boll_low": "#ba68c8",       # Bollinger Lower Band
+        "ma_colors": {
+            5:  "#ffeb3b",
+            20: "#42a5f5",
+            60: "#ab47bc",
+            120: "#ef6c00",
+            250: "#ffffff",
+        },
+        "boll_mid": "#ffb74d",
+        "boll_up": "#81c784",
+        "boll_low": "#ba68c8",
+        "rsi_colors": {
+            6:  "#ffeb3b",
+            14: "#ff80ab",
+            24: "#80d8ff",
+        },
     },
     "dark": {
         "bg_color": "#111111",
@@ -73,28 +97,52 @@ THEMES = {
         "indicator_pos": "#26a69a",
         "indicator_neg": "#ef5350",
         "equity_line": "#FFD700",
-        "boll_mid": "#ffa726",       # Bollinger Middle Band
-        "boll_up": "#66bb6a",        # Bollinger Upper Band
-        "boll_low": "#9575cd",       # Bollinger Lower Band
+        "ma_colors": {
+            5:  "#ffeb3b",
+            20: "#42a5f5",
+            60: "#ab47bc",
+            120: "#ef6c00",
+            250: "#ffffff",
+        },
+        "boll_mid": "#ffa726",
+        "boll_up": "#66bb6a",
+        "boll_low": "#9575cd",
+        "rsi_colors": {
+            6:  "#ffeb3b",
+            14: "#ff80ff",
+            24: "#80d8ff",
+        },
     },
     "light": {
         "bg_color": "#ffffff",
         "plot_bg": "#ffffff",
         "grid_color": "#e0e0e0",
-        "axis_color": "#666666",
-        "text_color": "#000000",
-        "candle_up": "#26a69a",
-        "candle_down": "#ef5350",
-        "volume_up": "#26a69a",
-        "volume_down": "#ef5350",
+        "axis_color": "#555555",
+        "text_color": "#222222",
+        "candle_up": "#00897b",
+        "candle_down": "#e53935",
+        "volume_up": "#00897b",
+        "volume_down": "#e53935",
         "buy_signal": "#00FF66",
         "sell_signal": "#FF1A1A",
         "indicator_pos": "#26a69a",
         "indicator_neg": "#ef5350",
         "equity_line": "#FFD700",
-        "boll_mid": "#ffa726",       # Bollinger Middle Band
-        "boll_up": "#66bb6a",        # Bollinger Upper Band
-        "boll_low": "#9575cd",       # Bollinger Lower Band
+        "ma_colors": {
+            5:  "#f9a825",
+            20: "#0277bd",
+            60: "#7b1fa2",
+            120: "#d84315",
+            250: "#000000",
+        },
+        "boll_mid": "#fb8c00",
+        "boll_up": "#2e7d32",
+        "boll_low": "#5e35b1",
+        "rsi_colors": {
+            6:  "#f9a825",
+            14: "#d81b60",
+            24: "#0277bd",
+        },
     },
 }
 
@@ -116,6 +164,55 @@ def bars_to_dataframe(bars: List[Bar]) -> pd.DataFrame:
         "Volume": [b.volume for b in bars],
     }
     df = pd.DataFrame(data, index=[b.timestamp for b in bars])
+    df = df.sort_index()
+    return df
+
+
+def add_indicators(
+    df: pd.DataFrame,
+    ma_list: List[int],
+    boll_len: Optional[int],
+    boll_std: Optional[float],
+    rsi_list: List[int],
+) -> pd.DataFrame:
+    """
+    Add technical indicators to DataFrame.
+    
+    Args:
+        df: DataFrame with OHLCV data
+        ma_list: List of moving average periods (e.g., [5, 20, 60])
+        boll_len: Bollinger Band length (e.g., 20)
+        boll_std: Bollinger Band standard deviation multiplier (e.g., 2.0)
+        rsi_list: List of RSI periods (e.g., [6, 14, 24])
+    
+    Returns:
+        DataFrame with indicators added
+    """
+    # Moving Averages
+    for length in ma_list:
+        if length > 0:
+            df[f"MA{length}"] = df["Close"].rolling(length).mean()
+    
+    # Bollinger Bands
+    if boll_len and boll_len > 0 and boll_std and boll_std > 0:
+        mid = df["Close"].rolling(boll_len).mean()
+        std = df["Close"].rolling(boll_len).std()  # Uses ddof=1 (sample std) by default
+        df["BOLL_MID"] = mid
+        df["BOLL_UPPER"] = mid + std * boll_std
+        df["BOLL_LOWER"] = mid - std * boll_std
+    
+    # RSI
+    for length in rsi_list:
+        if length <= 0:
+            continue
+        delta = df["Close"].diff()
+        gain = delta.where(delta > 0, 0.0)
+        loss = -delta.where(delta < 0, 0.0)
+        avg_gain = gain.rolling(length).mean()
+        avg_loss = loss.rolling(length).mean()
+        rs = avg_gain / avg_loss.replace(0, np.nan)
+        df[f"RSI{length}"] = 100 - (100 / (1 + rs))
+    
     return df
 
 
@@ -249,6 +346,16 @@ class PlotlyChartVisualizer:
         signals_df = signals_to_dataframe(signals or [])
         indicator_df = indicator_to_dataframe(indicator_data or [])
         
+        # If no indicator data provided, calculate basic indicators from bars (like fastapi_stockchart)
+        # This allows the chart to show MAs, Bollinger Bands, and RSI even without strategy indicator data
+        if indicator_df.empty:
+            # Default indicator parameters matching fastapi_stockchart defaults
+            ma_list = [5, 20, 60, 120, 250]
+            boll_len = 20
+            boll_std = 2.0
+            rsi_list = [14]
+            df = add_indicators(df, ma_list, boll_len, boll_std, rsi_list)
+        
         # Detect indicator type
         is_leveraged_etf_indicator = (
             indicator_data 
@@ -332,6 +439,9 @@ class PlotlyChartVisualizer:
             self._add_leveraged_etf_indicator_chart(indicator_df, signals_df, row=3)
         elif is_llm_trend_indicator:
             self._add_llm_trend_indicator_chart(indicator_df, signals_df, row=3)
+        elif indicator_df.empty and any(f"RSI{length}" in df.columns for length in [6, 14, 24]):
+            # If no indicator data but RSI calculated from bars, show basic RSI chart (like fastapi_stockchart)
+            self._add_basic_rsi_chart(df, row=3)
         else:
             self._add_indicator_chart(indicator_df, signals_df, row=3)
         
@@ -339,26 +449,48 @@ class PlotlyChartVisualizer:
         if show_equity and equity_curve and num_rows == 4:
             self._add_equity_chart(equity_curve, row=4)
         
-        # Update layout
+        # Update layout to match fastapi_stockchart exactly
+        self.fig.update_layout(
+            margin=dict(l=40, r=40, t=60, b=40),
+            xaxis_rangeslider_visible=False,
+        )
+        
+        # Build rangebreaks: weekends + missing business days (holidays) - match fastapi_stockchart
+        rangebreaks = [dict(bounds=["sat", "mon"])]
+        if not df.empty:
+            idx_dates = pd.to_datetime(df.index).normalize()
+            all_bus_days = pd.date_range(
+                start=idx_dates.min(),
+                end=idx_dates.max(),
+                freq="B",
+            )
+            present_days = pd.Index(idx_dates.unique())
+            missing_days = all_bus_days.difference(present_days)
+            if len(missing_days) > 0:
+                rangebreaks.append(dict(values=missing_days))
+        
+        # Update x-axes with gap removal
         self.fig.update_xaxes(
             showgrid=True,
             gridcolor=self.theme["grid_color"],
-            gridwidth=1,
-            showspikes=True,
-            spikecolor=self.theme["grid_color"],
-            spikethickness=1,
+            linecolor=self.theme["axis_color"],
+            tickfont=dict(color=self.theme["axis_color"]),
+            rangebreaks=rangebreaks,
         )
+        
+        # Update y-axes
         self.fig.update_yaxes(
             showgrid=True,
             gridcolor=self.theme["grid_color"],
-            gridwidth=1,
+            linecolor=self.theme["axis_color"],
+            tickfont=dict(color=self.theme["axis_color"]),
         )
         
         return self.fig
     
     def _add_price_chart(self, df: pd.DataFrame, signals_df: pd.DataFrame, row: int, indicator_df: Optional[pd.DataFrame] = None):
         """Add price chart with candlesticks, signals, and optionally Bollinger Bands."""
-        # Candlesticks
+        # Candlesticks - match fastapi_stockchart styling exactly
         self.fig.add_trace(
             go.Candlestick(
                 x=df.index,
@@ -366,11 +498,13 @@ class PlotlyChartVisualizer:
                 high=df["High"],
                 low=df["Low"],
                 close=df["Close"],
-                name="Price",
+                name="Candles",
                 increasing_line_color=self.theme["candle_up"],
                 decreasing_line_color=self.theme["candle_down"],
                 increasing_fillcolor=self.theme["candle_up"],
                 decreasing_fillcolor=self.theme["candle_down"],
+                increasing_line_width=1,
+                decreasing_line_width=1,
             ),
             row=row,
             col=1,
@@ -378,11 +512,22 @@ class PlotlyChartVisualizer:
         
         # Add Bollinger Bands if indicator_df is provided (LeveragedETFIndicatorData or LLMTrendIndicatorData)
         if indicator_df is not None and not indicator_df.empty and "bb_upper" in list(indicator_df.columns):
-            # Create a mapping from timestamp to indicator data for faster lookup
+            # Normalize timestamps to date-only for better matching (handles timezone/time differences)
+            def normalize_to_date(ts):
+                """Normalize timestamp to date for comparison."""
+                if isinstance(ts, pd.Timestamp):
+                    return ts.normalize().date()
+                elif isinstance(ts, datetime):
+                    return ts.date()
+                else:
+                    return pd.to_datetime(ts).normalize().date()
+            
+            # Create a mapping from normalized date to indicator data for faster lookup
             indicator_map = {}
             for _, row_data in indicator_df.iterrows():
                 ts = pd.to_datetime(row_data["timestamp"])
-                indicator_map[ts] = {
+                date_key = normalize_to_date(ts)
+                indicator_map[date_key] = {
                     "bb_upper": float(row_data["bb_upper"]) if pd.notna(row_data["bb_upper"]) else None,
                     "bb_middle": float(row_data["bb_middle"]) if pd.notna(row_data["bb_middle"]) else None,
                     "bb_lower": float(row_data["bb_lower"]) if pd.notna(row_data["bb_lower"]) else None,
@@ -395,18 +540,18 @@ class PlotlyChartVisualizer:
             df_index_list = list(df.index)
             
             for ts in df_index_list:
-                # Convert to pandas Timestamp for comparison
-                ts_key = pd.Timestamp(ts)
+                date_key = normalize_to_date(ts)
                 
-                # Try exact match first
-                if ts_key in indicator_map:
-                    bb_upper.append(indicator_map[ts_key]["bb_upper"])
-                    bb_middle.append(indicator_map[ts_key]["bb_middle"])
-                    bb_lower.append(indicator_map[ts_key]["bb_lower"])
+                # Try exact date match first
+                if date_key in indicator_map:
+                    bb_upper.append(indicator_map[date_key]["bb_upper"])
+                    bb_middle.append(indicator_map[date_key]["bb_middle"])
+                    bb_lower.append(indicator_map[date_key]["bb_lower"])
                 else:
                     # Fallback to finding closest match (within 1 day) if exact match not found
                     indicator_timestamps = pd.to_datetime(indicator_df["timestamp"])
-                    time_diffs = pd.Series(indicator_timestamps - ts_key).abs()
+                    ts_pd = pd.Timestamp(ts)
+                    time_diffs = pd.Series(indicator_timestamps - ts_pd).abs()
                     closest_idx = time_diffs.idxmin()
                     
                     if time_diffs[closest_idx] < pd.Timedelta(days=1):
@@ -418,14 +563,20 @@ class PlotlyChartVisualizer:
                         bb_middle.append(None)
                         bb_lower.append(None)
             
-            # Use the most recent BB value if the last bar doesn't have one
-            if len(bb_upper) > 0 and bb_upper[-1] is None:
-                for i in range(len(bb_upper) - 2, -1, -1):
-                    if bb_upper[i] is not None:
-                        bb_upper[-1] = bb_upper[i]
-                        bb_middle[-1] = bb_middle[i]
-                        bb_lower[-1] = bb_lower[i]
-                        break
+            # Forward-fill None values to prevent gaps (use last known value)
+            last_upper = None
+            last_middle = None
+            last_lower = None
+            for i in range(len(bb_upper)):
+                if bb_upper[i] is not None:
+                    last_upper = bb_upper[i]
+                    last_middle = bb_middle[i]
+                    last_lower = bb_lower[i]
+                elif last_upper is not None:
+                    # Forward-fill with last known value
+                    bb_upper[i] = last_upper
+                    bb_middle[i] = last_middle
+                    bb_lower[i] = last_lower
             
             # Add filled area between upper and lower bands
             df_index_list_reversed = df_index_list[::-1]
@@ -461,13 +612,13 @@ class PlotlyChartVisualizer:
                     ),
                     opacity=0.8,
                     hovertemplate="BOLL MID: %{y:.2f}<extra></extra>",
-                    connectgaps=False,
+                    connectgaps=True,  # Connect gaps to prevent visual breaks
                 ),
                 row=row,
                 col=1,
             )
             
-            # BB Upper - dotted line
+            # BB Upper - dotted line (match fastapi_stockchart: dash="dot")
             self.fig.add_trace(
                 go.Scatter(
                     x=df_index_list,
@@ -477,17 +628,17 @@ class PlotlyChartVisualizer:
                     line=dict(
                         color=self.theme.get("boll_up", "#66bb6a"),
                         width=1.0,
-                        dash="dash"
+                        dash="dot"
                     ),
                     opacity=0.7,
                     hovertemplate="BOLL UP: %{y:.2f}<extra></extra>",
-                    connectgaps=False,
+                    connectgaps=True,  # Connect gaps to prevent visual breaks
                 ),
                 row=row,
                 col=1,
             )
             
-            # BB Lower - dotted line
+            # BB Lower - dotted line (match fastapi_stockchart: dash="dot")
             self.fig.add_trace(
                 go.Scatter(
                     x=df_index_list,
@@ -497,41 +648,57 @@ class PlotlyChartVisualizer:
                     line=dict(
                         color=self.theme.get("boll_low", "#9575cd"),
                         width=1.0,
-                        dash="dash"
+                        dash="dot"
                     ),
                     opacity=0.7,
                     hovertemplate="BOLL LOW: %{y:.2f}<extra></extra>",
-                    connectgaps=False,
+                    connectgaps=True,  # Connect gaps to prevent visual breaks
                 ),
                 row=row,
                 col=1,
             )
         
+        # Add Moving Averages if calculated in dataframe (match fastapi_stockchart)
+        ma_colors = self.theme.get("ma_colors", {})
+        for length in sorted(ma_colors.keys()):
+            colname = f"MA{length}"
+            if colname in df.columns:
+                color = ma_colors.get(length)
+                line_kwargs = {"width": 1.1}
+                if color:
+                    line_kwargs["color"] = color
+                self.fig.add_trace(
+                    go.Scatter(
+                        x=df.index,
+                        y=df[colname],
+                        mode="lines",
+                        name=f"MA{length}",
+                        line=line_kwargs,
+                        opacity=0.9,
+                    ),
+                    row=row,
+                    col=1,
+                )
+        
         # Trading signals removed from price chart as requested
     
     def _add_volume_chart(self, df: pd.DataFrame, row: int, indicator_df: Optional[pd.DataFrame] = None):
         """Add volume chart with optional volume MA."""
-        # Color volume bars by price direction
-        # Create a list of colors, one for each bar
-        colors = []
-        for i in range(len(df)):
-            if df["Close"].iloc[i] >= df["Open"].iloc[i]:
-                colors.append(self.theme["volume_up"])
-            else:
-                colors.append(self.theme["volume_down"])
+        # Color volume bars by price direction - match fastapi_stockchart exactly
+        vol_colors = np.where(
+            df["Close"] >= df["Open"],
+            self.theme["volume_up"],
+            self.theme["volume_down"]
+        )
         
-        # Use go.Bar with proper marker configuration
+        # Use go.Bar - match fastapi_stockchart styling
         self.fig.add_trace(
             go.Bar(
                 x=df.index,
                 y=df["Volume"],
                 name="Volume",
-                marker=dict(
-                    color=colors,
-                    line=dict(width=0),
-                ),
-                opacity=0.7,
-                showlegend=True,
+                marker_color=vol_colors,
+                showlegend=False,
             ),
             row=row,
             col=1,
@@ -620,33 +787,74 @@ class PlotlyChartVisualizer:
                 col=1,
             )
     
+    def _add_basic_rsi_chart(self, df: pd.DataFrame, row: int):
+        """Add basic RSI chart from calculated indicators (like fastapi_stockchart)."""
+        rsi_colors = self.theme.get("rsi_colors", {})
+        
+        # Add RSI lines for each calculated RSI period
+        for length in [6, 14, 24]:
+            colname = f"RSI{length}"
+            if colname in df.columns:
+                color = rsi_colors.get(length, "#ffffff")
+                self.fig.add_trace(
+                    go.Scatter(
+                        x=df.index,
+                        y=df[colname],
+                        mode="lines",
+                        name=f"RSI{length}",
+                        line=dict(color=color, width=1.5),
+                    ),
+                    row=row,
+                    col=1,
+                )
+        
+        # Add RSI threshold lines (70/30) - match fastapi_stockchart
+        if not df.empty:
+            x_min = df.index.min()
+            x_max = df.index.max()
+            for level in (70, 30):
+                self.fig.add_trace(
+                    go.Scatter(
+                        x=[x_min, x_max],
+                        y=[level, level],
+                        mode="lines",
+                        line=dict(dash="dot", width=1, color=self.theme["grid_color"]),
+                        showlegend=False,
+                    ),
+                    row=row,
+                    col=1,
+                )
+    
     def _add_leveraged_etf_indicator_chart(self, indicator_df: pd.DataFrame, signals_df: pd.DataFrame, row: int):
         """Add Leveraged ETF indicator chart (RSI)."""
         if indicator_df.empty:
             return
         
-        # RSI Fast
+        # RSI Fast - use theme colors if available
+        rsi_colors = self.theme.get("rsi_colors", {})
+        rsi_fast_color = rsi_colors.get(6, "#ff6b6b")  # Default to red if not in theme
         self.fig.add_trace(
             go.Scatter(
                 x=indicator_df["timestamp"],
                 y=indicator_df["rsi_fast"],
                 mode="lines",
                 name="RSI Fast",
-                line=dict(color="#ff6b6b", width=1.5),
+                line=dict(color=rsi_fast_color, width=1.5),
                 opacity=0.8,
             ),
             row=row,
             col=1,
         )
         
-        # RSI Slow
+        # RSI Slow - use theme colors if available
+        rsi_slow_color = rsi_colors.get(14, "#4ecdc4")  # Default to teal if not in theme
         self.fig.add_trace(
             go.Scatter(
                 x=indicator_df["timestamp"],
                 y=indicator_df["rsi_slow"],
                 mode="lines",
                 name="RSI Slow",
-                line=dict(color="#4ecdc4", width=1.5),
+                line=dict(color=rsi_slow_color, width=1.5),
                 opacity=0.8,
             ),
             row=row,
@@ -688,15 +896,14 @@ class PlotlyChartVisualizer:
                 col=1,
             )
             
-            # Overbought/oversold levels
+            # Overbought/oversold levels - match fastapi_stockchart (dash="dot")
             self.fig.add_trace(
                 go.Scatter(
                     x=[x_min, x_max],
                     y=[70, 70],
                     mode="lines",
                     name="Overbought",
-                    line=dict(dash="dash", width=1, color="#888888"),
-                    opacity=0.3,
+                    line=dict(dash="dot", width=1, color=self.theme["grid_color"]),
                     showlegend=False,
                 ),
                 row=row,
@@ -708,8 +915,7 @@ class PlotlyChartVisualizer:
                     y=[30, 30],
                     mode="lines",
                     name="Oversold",
-                    line=dict(dash="dash", width=1, color="#888888"),
-                    opacity=0.3,
+                    line=dict(dash="dot", width=1, color=self.theme["grid_color"]),
                     showlegend=False,
                 ),
                 row=row,
@@ -743,7 +949,9 @@ class PlotlyChartVisualizer:
         if indicator_df.empty:
             return
         
-        # RSI
+        # RSI - use theme colors
+        rsi_colors = self.theme.get("rsi_colors", {})
+        rsi_color = rsi_colors.get(14, "#4ecdc4")  # Default to teal if not in theme
         if "rsi" in indicator_df.columns:
             self.fig.add_trace(
                 go.Scatter(
@@ -751,27 +959,26 @@ class PlotlyChartVisualizer:
                     y=indicator_df["rsi"],
                     mode="lines",
                     name="RSI",
-                    line=dict(color="#4ecdc4", width=1.5),
+                    line=dict(color=rsi_color, width=1.5),
                     opacity=0.8,
                 ),
                 row=row,
                 col=1,
             )
             
-            # RSI thresholds (horizontal lines)
+            # RSI thresholds (horizontal lines) - match fastapi_stockchart
             if not indicator_df.empty:
                 x_min = indicator_df["timestamp"].min()
                 x_max = indicator_df["timestamp"].max()
                 
-                # Overbought/oversold levels
+                # Overbought/oversold levels - match fastapi_stockchart (dash="dot")
                 self.fig.add_trace(
                     go.Scatter(
                         x=[x_min, x_max],
                         y=[70, 70],
                         mode="lines",
                         name="Overbought (70)",
-                        line=dict(dash="dash", width=1, color="#888888"),
-                        opacity=0.3,
+                        line=dict(dash="dot", width=1, color=self.theme["grid_color"]),
                         showlegend=False,
                     ),
                     row=row,
@@ -783,8 +990,7 @@ class PlotlyChartVisualizer:
                         y=[30, 30],
                         mode="lines",
                         name="Oversold (30)",
-                        line=dict(dash="dash", width=1, color="#888888"),
-                        opacity=0.3,
+                        line=dict(dash="dot", width=1, color=self.theme["grid_color"]),
                         showlegend=False,
                     ),
                     row=row,
