@@ -5,6 +5,7 @@ from pathlib import Path
 import logging
 import argparse
 import yaml
+from typing import List, Dict
 
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
@@ -24,6 +25,82 @@ from core.strategy.llm_trend_detection import (
     LLMTrendDetectionStrategy,
     LLMTrendDetectionConfig,
 )
+
+
+def _analyze_trend_periods(regime_history: List[Dict]) -> List[Dict]:
+    """
+    Analyze regime history to find distinct trend periods.
+    
+    A trend period begins when the regime changes to a new value
+    and ends when it changes to a different value.
+    
+    Args:
+        regime_history: List of regime decision dictionaries with 'timestamp' and 'regime' keys
+    
+    Returns:
+        List of dictionaries with period information:
+        - regime: The regime type (TREND_UP, TREND_DOWN, RANGE)
+        - start_date: When the period began
+        - end_date: When the period ended
+        - duration_days: Number of days in the period
+        - start_price: Price at start (if available)
+        - end_price: Price at end (if available)
+    """
+    if not regime_history:
+        return []
+    
+    periods = []
+    current_regime = None
+    period_start = None
+    period_start_price = None
+    previous_timestamp = None
+    previous_price = None
+    
+    for decision in regime_history:
+        timestamp = decision.get("timestamp")
+        regime = decision.get("regime", "UNKNOWN")
+        price = decision.get("price")
+        
+        # Convert timestamp to datetime if it's a string
+        if isinstance(timestamp, str):
+            timestamp = datetime.fromisoformat(timestamp)
+        elif not isinstance(timestamp, datetime):
+            continue  # Skip invalid timestamps
+        
+        # If regime changed, end previous period and start new one
+        if regime != current_regime:
+            # End previous period if it exists
+            if current_regime is not None and period_start is not None and previous_timestamp is not None:
+                periods.append({
+                    "regime": current_regime,
+                    "start_date": period_start,
+                    "end_date": previous_timestamp,
+                    "duration_days": (previous_timestamp - period_start).days + 1,
+                    "start_price": period_start_price,
+                    "end_price": previous_price,
+                })
+            
+            # Start new period
+            current_regime = regime
+            period_start = timestamp
+            period_start_price = price
+        
+        # Track the most recent timestamp and price for the current period
+        previous_timestamp = timestamp
+        previous_price = price
+    
+    # Don't forget the last period
+    if current_regime is not None and period_start is not None and previous_timestamp is not None:
+        periods.append({
+            "regime": current_regime,
+            "start_date": period_start,
+            "end_date": previous_timestamp,
+            "duration_days": (previous_timestamp - period_start).days + 1,
+            "start_price": period_start_price,
+            "end_price": previous_price,
+        })
+    
+    return periods
 
 logging.basicConfig(
     level=logging.INFO,
@@ -86,8 +163,8 @@ async def run_backtest_llm_trend_detection(use_local_chart: bool = False):
         llm_temperature=strat_cfg_raw.get("llm_temperature", 0.0),
         use_llm=strat_cfg_raw.get("use_llm", True),
         openai_api_key=strat_cfg_raw.get("openai_api_key"),  # Read from config
-        enable_trading=strat_cfg_raw.get("enable_trading", False),
-        capital_deployment_pct=strat_cfg_raw.get("capital_deployment_pct", 1.0),
+        enable_trading=strat_cfg_raw.get("enable_trading", True),  # Enable trading for performance testing
+        capital_deployment_pct=strat_cfg_raw.get("capital_deployment_pct", 1.0),  # Deploy 100% of capital
     )
 
     strategy = LLMTrendDetectionStrategy(symbol, cfg, data_engine)
@@ -160,6 +237,34 @@ async def run_backtest_llm_trend_detection(use_local_chart: bool = False):
         for regime, count in sorted(regime_counts.items()):
             pct = (count / total_decisions) * 100 if total_decisions > 0 else 0
             print(f"  {regime}: {count} ({pct:.1f}%)")
+        
+        # Analyze trend periods (beginning and ending dates)
+        print("\n=== Trend Periods ===")
+        trend_periods = _analyze_trend_periods(regime_history)
+        
+        if trend_periods:
+            print(f"\nFound {len(trend_periods)} trend period(s):\n")
+            for i, period in enumerate(trend_periods, 1):
+                regime = period["regime"]
+                start_date = period["start_date"]
+                end_date = period["end_date"]
+                duration_days = period["duration_days"]
+                start_price = period.get("start_price", "N/A")
+                end_price = period.get("end_price", "N/A")
+                
+                print(f"Period {i}: {regime}")
+                print(f"  Start:  {start_date.strftime('%Y-%m-%d')} (Price: ${start_price:.2f})" if isinstance(start_price, (int, float)) else f"  Start:  {start_date.strftime('%Y-%m-%d')} (Price: {start_price})")
+                print(f"  End:    {end_date.strftime('%Y-%m-%d')} (Price: ${end_price:.2f})" if isinstance(end_price, (int, float)) else f"  End:    {end_date.strftime('%Y-%m-%d')} (Price: {end_price})")
+                print(f"  Duration: {duration_days} day(s)")
+                
+                # Calculate price change if available
+                if isinstance(start_price, (int, float)) and isinstance(end_price, (int, float)) and start_price > 0:
+                    price_change = end_price - start_price
+                    price_change_pct = (price_change / start_price) * 100
+                    print(f"  Price Change: ${price_change:+.2f} ({price_change_pct:+.2f}%)")
+                print()
+        else:
+            print("No distinct trend periods found (all decisions are the same regime)")
         
         # Show latest state
         latest_state = strategy.get_latest_state()

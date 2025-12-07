@@ -14,5 +14,5 @@ llm_temperature: 0.0
 use_llm: true            # set false for cheap large backtests
 openai_api_key: "YOUR_OPENAI_API_KEY"  # OpenAI API key (set in config/secrets.yaml)
 
-enable_trading: false    # keep off; DBS2.0 will actually trade
-capital_deployment_pct: 1.0
+enable_trading: true     # Enable for backtesting performance testing
+capital_deployment_pct: 1.0  # Deploy 100% of capital when going long
