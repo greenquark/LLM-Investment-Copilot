@@ -41,7 +41,13 @@ class QuoteCache:
     
     def __init__(self, cache_dir: str = "data_cache/bars"):
         """Initialize the quote cache (uses bars directory)."""
-        self._cache_dir = Path(cache_dir)
+        # Resolve cache directory relative to project root if it's a relative path
+        cache_dir_path = Path(cache_dir)
+        if not cache_dir_path.is_absolute():
+            # Make it relative to project root
+            self._cache_dir = project_root / cache_dir
+        else:
+            self._cache_dir = cache_dir_path
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"QuoteCache initialized with cache directory: {self._cache_dir}")
     

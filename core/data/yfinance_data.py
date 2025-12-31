@@ -199,6 +199,12 @@ class YFinanceDataAdapter(DataEngine):
         start_date = start.date() if isinstance(start, datetime) else start
         end_date = end.date() if isinstance(end, datetime) else end
         
+        # yfinance requires end_date to be after start_date (exclusive end)
+        # If start and end are the same date, add 1 day to end_date
+        if start_date == end_date:
+            end_date = end_date + timedelta(days=1)
+            logger.debug(f"Adjusted end_date from {end.date() if isinstance(end, datetime) else end} to {end_date} for yfinance (same-day request)")
+        
         # Run yfinance download in executor (it's synchronous)
         # Note: For 1m data, yfinance only allows 8 days per request
         # Adjust date range if needed for 1m interval
@@ -229,14 +235,38 @@ class YFinanceDataAdapter(DataEngine):
                 )
             )
         except Exception as e:
-            logger.error(f"YFinance download error for {symbol}: {e}")
-            import traceback
-            logger.debug(traceback.format_exc())
-            return []
+            # Check if this is a rate limit or API error that should be raised
+            error_str = str(e).lower()
+            if any(keyword in error_str for keyword in ['rate limit', '429', 'too many requests', 'limit exceeded', 'quota', '403', '401', 'payment required', '402']):
+                logger.error(f"YFinance API error (rate limit or authentication issue) for {symbol}: {e}")
+                import traceback
+                logger.debug(traceback.format_exc())
+                raise RuntimeError(f"YFinance API error for {symbol}: {e}") from e
+            else:
+                # For other errors (network issues, etc.), log and raise
+                logger.error(f"YFinance download error for {symbol}: {e}")
+                import traceback
+                logger.debug(traceback.format_exc())
+                raise RuntimeError(f"YFinance download error for {symbol}: {e}") from e
         
         # Check if we got data
         if df is None or df.empty:
-            logger.warning(f"No data returned from YFinance for {symbol} from {start_date} to {end_date} (interval={interval})")
+            # Check if the date is in the future (beyond today)
+            from datetime import date as date_type
+            today = date_type.today()
+            start_date_only = start_date.date() if isinstance(start_date, datetime) else start_date
+            end_date_only = end_date.date() if isinstance(end_date, datetime) else end_date
+            
+            if end_date_only > today:
+                logger.info(
+                    f"No data returned from YFinance for {symbol} from {start_date} to {end_date} (interval={interval}). "
+                    f"Date is in the future (today is {today}), so data is not yet available."
+                )
+            else:
+                logger.warning(
+                    f"No data returned from YFinance for {symbol} from {start_date} to {end_date} (interval={interval}). "
+                    f"This may indicate a non-trading day, holiday, or data availability issue."
+                )
             return []
         
         # Debug: log DataFrame info

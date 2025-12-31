@@ -44,7 +44,7 @@ async def main(use_local_chart: bool = False):
     if not strategy_file.exists():
         # Create default config if it doesn't exist
         default_config = {
-            "symbol": "AAPL",
+            # Note: symbol is configured in env.backtest.yaml, not here
             "adx_length": 9,
             "smoothing_factor": 1,
             "collect_length": 100,
@@ -65,11 +65,17 @@ async def main(use_local_chart: bool = False):
     # Validate required config keys
     if "backtest" not in env:
         raise ValueError("Missing 'backtest' section in config")
-    if "symbol" not in strat_cfg_raw:
-        raise ValueError("Missing 'symbol' in strategy config")
     
-    symbol = strat_cfg_raw["symbol"]
     bt_cfg = env["backtest"]
+    
+    # Get symbol from backtest config (env.backtest.yaml) - preferred location
+    # Fall back to strategy config if not found in backtest config
+    if "symbol" in bt_cfg:
+        symbol = bt_cfg["symbol"]
+    elif "symbol" in strat_cfg_raw:
+        symbol = strat_cfg_raw["symbol"]
+    else:
+        raise ValueError("Missing 'symbol' in backtest config (env.backtest.yaml). Symbol should be configured in env.backtest.yaml under backtest.symbol")
     
     # Validate backtest config
     required_bt_keys = ["start", "end", "initial_cash"]

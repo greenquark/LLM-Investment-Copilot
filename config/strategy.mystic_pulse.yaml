@@ -1,4 +1,4 @@
-symbol: AAPL
+# Note: symbol is configured in env.backtest.yaml, not here
 adx_length: 9
 smoothing_factor: 1
 collect_length: 100

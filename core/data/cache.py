@@ -22,19 +22,7 @@ except (ImportError, ValueError) as e:
 from core.models.bar import Bar
 
 # Import trading calendar functions from core.data (centralized export)
-# This ensures consistent access across the codebase
-try:
-    from core.data import get_trading_days, is_trading_day
-    _TRADING_CALENDAR_AVAILABLE = True
-except ImportError:
-    # Fallback: try direct import if core.data export not available
-    try:
-        from core.data.trading_calendar import get_trading_days, is_trading_day
-        _TRADING_CALENDAR_AVAILABLE = True
-    except ImportError:
-        _TRADING_CALENDAR_AVAILABLE = False
-        get_trading_days = None  # type: ignore
-        is_trading_day = None  # type: ignore
+from core.data import get_trading_days, is_trading_day
 
 logger = logging.getLogger(__name__)
 
@@ -894,7 +882,7 @@ class DataCache:
             # Generate all normalized units in requested range
             # For daily bars, only include trading days
             requested_units = set()
-            if unit_seconds == 86400 and _TRADING_CALENDAR_AVAILABLE and get_trading_days:
+            if unit_seconds == 86400 and get_trading_days:
                 # Daily bars - only include trading days
                 start_date = normalized_start.date()
                 end_date = normalized_end.date()
@@ -954,7 +942,7 @@ class DataCache:
             if missing_units:
                 # For daily bars, filter out non-trading days from missing units
                 # Use get_trading_days() once to get all trading days, then check membership (more efficient)
-                if unit_seconds == 86400 and _TRADING_CALENDAR_AVAILABLE and get_trading_days:
+                if unit_seconds == 86400 and get_trading_days:
                     try:
                         # Get all trading days in the range once (more efficient than calling is_trading_day per unit)
                         min_missing_date = min(unit.date() for unit in missing_units)

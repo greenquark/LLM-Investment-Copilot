@@ -332,8 +332,15 @@ class MarketDataAppAdapter(DataEngine):
                     await asyncio.sleep(wait_time)
                     continue
                 else:
-                    # Last attempt failed, return empty list gracefully
-                    return []
+                    # Last attempt failed, raise error instead of returning empty list
+                    error_msg = (
+                        f"❌ HTTP timeout: Request timed out after {self._max_retries} attempts.\n"
+                        f"   URL: {url}\n"
+                        f"   Timeout: {self._timeout}s\n"
+                        f"   Last exception: {e}"
+                    )
+                    logger.error(error_msg)
+                    raise RuntimeError(error_msg) from e
             except httpx.HTTPStatusError as e:
                 # Bail out immediately on 404 Not Found
                 if e.response.status_code == 404:

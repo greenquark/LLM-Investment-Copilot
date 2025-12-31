@@ -5,7 +5,7 @@ from datetime import datetime
 class Fill:
     order_id: str
     symbol: str
-    quantity: int
+    quantity: float  # Changed to float to support fractional shares
     price: float
     commission: float
     timestamp: datetime

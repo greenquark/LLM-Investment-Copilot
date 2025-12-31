@@ -28,7 +28,7 @@ class Order:
     id: str
     symbol: str
     side: Side
-    quantity: int
+    quantity: float  # Changed to float to support fractional shares
     order_type: OrderType
     limit_price: Optional[float]
     instrument_type: InstrumentType

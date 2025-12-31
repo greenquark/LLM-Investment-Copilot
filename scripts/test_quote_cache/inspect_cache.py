@@ -28,7 +28,7 @@ try:
     from core.data.cache import DataCache
     from core.models.bar import Bar
 except ImportError as e:
-    print(f"❌ Failed to import required modules: {e}")
+    print(f"[ERROR] Failed to import required modules: {e}")
     print("Make sure you're running from the project root directory")
     exit(1)
 
@@ -42,21 +42,29 @@ async def inspect_cache(
     Inspect cache contents.
     
     Args:
-        cache_dir: Directory containing cache files
+        cache_dir: Directory containing cache files (relative to project root or absolute)
         symbol: Optional symbol to filter by (e.g., "SOXL")
         timeframe: Optional timeframe to filter by (e.g., "1D")
     """
-    cache = DataCache(cache_dir)
+    # Resolve cache directory relative to project root if it's a relative path
     cache_path = Path(cache_dir)
+    if not cache_path.is_absolute():
+        # Make it relative to project root
+        cache_path = project_root / cache_dir
+    
+    # Use the resolved path for DataCache
+    cache = DataCache(str(cache_path))
     
     if not cache_path.exists():
-        print(f"❌ Cache directory does not exist: {cache_dir}")
+        print(f"[ERROR] Cache directory does not exist: {cache_path}")
+        print(f"   (resolved from: {cache_dir})")
+        print(f"   Project root: {project_root}")
         return
     
     print("=" * 80)
     print("Cache Inspection")
     print("=" * 80)
-    print(f"Cache directory: {cache_dir}\n")
+    print(f"Cache directory: {cache_path}\n")
     
     # Find all cache files
     cache_files = list(cache_path.glob("*.parquet"))
@@ -74,7 +82,7 @@ async def inspect_cache(
         filename = cache_file.stem
         parts = filename.rsplit("_", 1)
         if len(parts) != 2:
-            print(f"⚠️  Skipping file with unexpected format: {filename}")
+            print(f"[WARNING] Skipping file with unexpected format: {filename}")
             continue
         
         file_symbol = parts[0]
@@ -108,7 +116,7 @@ async def inspect_cache(
                     "bars": all_bars,
                 })
         except Exception as e:
-            print(f"⚠️  Error loading {filename}: {e}")
+            print(f"[WARNING] Error loading {filename}: {e}")
             continue
     
     if not cache_info:
@@ -168,12 +176,12 @@ async def inspect_cache(
                 
                 if missing_dates:
                     print(
-                        f"   ⚠️  Missing {len(missing_dates)} trading day(s): "
+                        f"   [WARNING] Missing {len(missing_dates)} trading day(s): "
                         f"{missing_dates[:5]}{'...' if len(missing_dates) > 5 else ''}"
                     )
                 else:
                     print(
-                        f"   ✓ All {len(trading_dates)} trading days in range are cached"
+                        f"   [OK] All {len(trading_dates)} trading days in range are cached"
                     )
             except ImportError:
                 pass  # Trading calendar not available

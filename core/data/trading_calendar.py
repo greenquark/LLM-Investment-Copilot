@@ -139,14 +139,41 @@ class TradingCalendar:
         Get the previous trading day before the given date.
         
         Args:
-            day: Reference date
+            day: Reference date (must be a pure date object, not datetime)
             
         Returns:
             Previous trading day, or None if not found
         """
         try:
-            prev_day = self.calendar.previous_session(day)
-            return prev_day.date() if isinstance(prev_day, datetime) else prev_day
+            # Ensure we have a pure date object (not datetime or string)
+            if isinstance(day, datetime):
+                day = day.date()
+            elif isinstance(day, str):
+                day = date.fromisoformat(day[:10])
+            elif not isinstance(day, date):
+                # Try to convert other types
+                if hasattr(day, 'date'):
+                    day = day.date()
+                else:
+                    day = date.fromisoformat(str(day)[:10])
+            
+            # Use get_trading_days to find previous trading day
+            # This is more reliable than previous_session which may fail for non-session dates
+            from datetime import timedelta
+            start_date = day - timedelta(days=60)  # Look back 60 days to ensure we find one
+            trading_days = self.get_trading_days(start_date, day)
+            # Filter out the current day and get the previous one
+            prev_days = [d for d in trading_days if d < day]
+            if prev_days:
+                return prev_days[-1]
+            else:
+                # Fallback: try calendar method if get_trading_days didn't work
+                try:
+                    prev_day = self.calendar.previous_session(day)
+                    return prev_day.date() if isinstance(prev_day, datetime) else prev_day
+                except Exception:
+                    # If that also fails, return None
+                    return None
         except Exception as e:
             logger.warning(f"Failed to get previous trading day before {day}: {e}")
             return None

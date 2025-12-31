@@ -6,7 +6,7 @@ from datetime import datetime
 @dataclass
 class Position:
     symbol: str
-    quantity: int
+    quantity: float  # Changed to float to support fractional shares
     avg_price: float
     instrument_type: str      # "STOCK" or "OPTION"
     last_updated: Optional[datetime] = None

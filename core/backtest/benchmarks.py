@@ -1,6 +1,6 @@
 from __future__ import annotations
-from datetime import datetime
-from typing import Dict
+from datetime import datetime, date
+from typing import Dict, Optional
 
 from core.data.base import DataEngine
 from core.backtest.performance import evaluate_performance
@@ -11,7 +11,7 @@ async def run_buy_and_hold(
     symbol: str,
     start: datetime,
     end: datetime,
-    initial_cash: float = 100_000.0,
+    initial_cash: float = 0.0,
     timeframe: str = "D",
 ) -> BacktestResult:
     bars = await data_engine.get_bars(symbol, start, end, timeframe=timeframe)
@@ -30,3 +30,5 @@ async def run_buy_and_hold(
 
     metrics = evaluate_performance(equity_curve)
     return BacktestResult(equity_curve=equity_curve, metrics=metrics)
+
+

@@ -1,33 +1,30 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 from core.backtest.scheduler import DecisionScheduler
-from core.backtest.result import BacktestResult
+from core.backtest.result import BacktestResult, PerformanceMetrics
 from core.backtest.performance import evaluate_performance
+from core.backtest.data_provider import BacktestDataProvider
+from core.backtest.equity_tracker import EquityTracker
+from core.backtest.orchestrator import BacktestOrchestrator
+from core.backtest.context import SimpleContext
 from core.data.base import DataEngine
+from core.data.provider import DataEngineProvider, FearGreedIndexProvider
 from core.execution.simulated import SimulatedExecutionEngine
 from core.portfolio.portfolio import Portfolio, PortfolioState
 from core.strategy.base import Strategy
 from core.utils.logging import Logger
 from core.models.bar import Bar
 
-@dataclass
-class SimpleContext:
-    portfolio: Portfolio
-    execution: SimulatedExecutionEngine
-    logger: Logger
-    symbol: str
-    _data_source: str = ""  # Track data source name (e.g., "Cache", "MarketData", "Moomoo")
-    _bars: Optional[List[Bar]] = None  # Bars fetched by engine, can be reused by strategy
-
-    def log(self, msg: str) -> None:
-        # Add data source prefix if available
-        prefix = f"[{self._data_source}] " if self._data_source else ""
-        self.logger.log(f"{prefix}{msg}")
-
 class BacktestEngine:
+    """
+    Backtest Engine - Thin wrapper around BacktestOrchestrator.
+    
+    This class maintains the existing public API while delegating to
+    the orchestrator for actual execution.
+    """
     def __init__(
         self,
         data_engine: DataEngine,
@@ -37,6 +34,18 @@ class BacktestEngine:
         self._data = data_engine
         self._scheduler = scheduler
         self._logger = logger
+        
+        # Create components
+        self._data_provider = BacktestDataProvider(data_engine)
+        self._equity_tracker = EquityTracker()
+        self._orchestrator = BacktestOrchestrator(
+            data_provider=self._data_provider,
+            equity_tracker=self._equity_tracker,
+            scheduler=scheduler,
+            logger=logger,
+        )
+        
+        # Store state for partial result retrieval and backward compatibility
         self._equity_curve: Dict[datetime, float] = {}
         self._portfolio: Portfolio | None = None
         self._exec_engine: SimulatedExecutionEngine | None = None
@@ -51,6 +60,10 @@ class BacktestEngine:
         end: datetime,
         initial_cash: float = 100_000.0,
         timeframe: str = "15m",
+        # DCA-specific parameters
+        is_dca: bool = False,
+        contribution_amount: float = 0.0,
+        contribution_frequency: str = "weekly",  # "weekly", "monthly", "quarterly", "yearly"
     ) -> BacktestResult:
         portfolio = Portfolio(PortfolioState(cash=initial_cash))
         exec_engine = SimulatedExecutionEngine()
@@ -62,13 +75,22 @@ class BacktestEngine:
         self._strategy = strategy
         self._equity_curve = {}
 
+        # Create providers
+        data_provider = DataEngineProvider(self._data)
+        fgi_provider = FearGreedIndexProvider()
+        
         ctx = SimpleContext(
             portfolio=portfolio,
             execution=exec_engine,
             logger=self._logger,
             symbol=symbol,
+            _data_provider=data_provider,
+            _fgi_provider=fgi_provider,
         )
         self._ctx = ctx
+        
+        # Set initial logger timestamp
+        self._logger.set_timestamp(now)
         
         await strategy.on_start(ctx)
 
@@ -118,8 +140,19 @@ class BacktestEngine:
                 
                 # Pass bars to context so strategy can reuse them (avoids duplicate fetch)
                 ctx._bars = bars
+                ctx._now = now  # Set current decision timestamp
 
+                # Set logger timestamp to backtest decision time (so logs show backtest date, not current time)
+                self._logger.set_timestamp(now)
+                # #region agent log
+                with open(r'c:\Users\JiantaoPan\OneDrive\Documents\Code\LLM-Investment-Copilot\.cursor\debug.log', 'a') as f:
+                    import json
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"engine.py:132","message":"calling on_decision","data":{"now":str(now),"now_date":str(now.date()),"bars_count":len(bars) if bars else 0,"last_bar_timestamp":str(bars[-1].timestamp) if bars else None},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                # #endregion
                 await strategy.on_decision(ctx, now)
+                
+                # Clear timestamp after decision (optional, but clean)
+                # self._logger.clear_timestamp()  # Keep timestamp for any post-decision logging
                 
                 # Update market price from strategy's current bar if available
                 # This ensures we have the latest price for order processing
@@ -129,7 +162,9 @@ class BacktestEngine:
                         latest_bar = strategy_bars[-1]
                         exec_engine.update_market_price(symbol, latest_bar.close)
 
-                fills = await exec_engine.process_pending()
+                # Process pending orders using the decision timestamp (now)
+                # This ensures fills have the correct timestamp matching the decision point
+                fills = await exec_engine.process_pending(timestamp=now)
                 for fill in fills:
                     portfolio.apply_fill(fill)
 
@@ -163,6 +198,8 @@ class BacktestEngine:
                         self._equity_curve[now] = initial_cash
 
                 now = self._scheduler.next(now)
+                # Update logger timestamp to new decision time
+                self._logger.set_timestamp(now)
 
             await strategy.on_end(ctx)
         except KeyboardInterrupt:
@@ -174,13 +211,19 @@ class BacktestEngine:
                 pass
             raise
 
-        metrics = evaluate_performance(self._equity_curve)
-        self._logger.log(
-            f"Backtest finished: TotalReturn={metrics.total_return:.2%}, "
-            f"CAGR={metrics.cagr:.2%}, Sharpe={metrics.sharpe:.2f}, "
-            f"MaxDD={metrics.max_drawdown:.2%}"
+        # Return raw results - performance evaluation will be done by the calling script
+        # Create a minimal metrics object (will be recalculated by script)
+        from core.backtest.result import PerformanceMetrics
+        dummy_metrics = PerformanceMetrics(
+            total_return=0.0,
+            cagr=0.0,
+            volatility=0.0,
+            sharpe=0.0,
+            max_drawdown=0.0,
+            max_drawdown_start=None,
+            max_drawdown_end=None,
         )
-        return BacktestResult(equity_curve=self._equity_curve, metrics=metrics)
+        return BacktestResult(equity_curve=self._equity_curve, metrics=dummy_metrics)
 
     def get_partial_result(self) -> BacktestResult | None:
         """Get partial backtest results if available (e.g., after interruption)."""
