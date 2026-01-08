@@ -15,6 +15,18 @@ from plotly.subplots import make_subplots
 
 from core.models.bar import Bar
 from core.visualization.models import TradeSignal, IndicatorData, LeveragedETFIndicatorData, LLMTrendIndicatorData
+from core.visualization.chart_config import (
+    ChartConfig, 
+    IndicatorType, 
+    get_chart_config,
+    GenericChartConfig,
+)
+from core.visualization.chart_config import (
+    ChartConfig, 
+    IndicatorType, 
+    get_chart_config,
+    GenericChartConfig,
+)
 
 
 # ---------- THEME DEFINITIONS ----------
@@ -319,6 +331,8 @@ class PlotlyChartVisualizer:
         symbol: str = "UNKNOWN",
         show_equity: bool = True,
         regime_history: Optional[List[Dict[str, Any]]] = None,  # For trend indicator
+        chart_config: Optional[ChartConfig] = None,  # Strategy-specific chart configuration
+        strategy_name: Optional[str] = None,  # Auto-detect config if chart_config not provided
     ) -> go.Figure:
         """
         Build a complete multi-panel chart.
@@ -332,12 +346,38 @@ class PlotlyChartVisualizer:
             symbol: Stock symbol
             show_equity: Whether to show equity curve panel
             regime_history: Optional regime history for LLM trend indicator
+            chart_config: Strategy-specific chart configuration (if None, will auto-detect)
+            strategy_name: Strategy name for auto-detection (used if chart_config is None)
         
         Returns:
             Plotly Figure object
         """
         if not bars:
             raise ValueError("No bars provided for charting")
+        
+        # Get or auto-detect chart configuration
+        if chart_config is None:
+            # Auto-detect based on indicator_data type or strategy_name
+            if strategy_name:
+                chart_config = get_chart_config(strategy_name, use_regime_history=regime_history is not None)
+            elif indicator_data and len(indicator_data) > 0:
+                # Auto-detect from indicator data type
+                if isinstance(indicator_data[0], LeveragedETFIndicatorData):
+                    chart_config = get_chart_config("leveraged_etf")
+                elif isinstance(indicator_data[0], LLMTrendIndicatorData):
+                    chart_config = get_chart_config("llm_trend", use_regime_history=regime_history is not None)
+                elif isinstance(indicator_data[0], IndicatorData):
+                    chart_config = get_chart_config("mystic_pulse")
+                else:
+                    chart_config = GenericChartConfig()
+            elif regime_history:
+                chart_config = get_chart_config("llm_trend", use_regime_history=True)
+            else:
+                chart_config = GenericChartConfig()
+        
+        # Override show_equity if provided
+        if not show_equity:
+            chart_config.show_equity_panel = False
         
         # Convert to DataFrames
         df = bars_to_dataframe(bars)
@@ -348,7 +388,7 @@ class PlotlyChartVisualizer:
         
         # If no indicator data provided, calculate basic indicators from bars (like fastapi_stockchart)
         # This allows the chart to show MAs, Bollinger Bands, and RSI even without strategy indicator data
-        if indicator_df.empty:
+        if indicator_df.empty and chart_config.indicator_type == IndicatorType.BASIC_RSI:
             # Default indicator parameters matching fastapi_stockchart defaults
             ma_list = [5, 20, 60, 120, 250]
             boll_len = 20
@@ -356,38 +396,20 @@ class PlotlyChartVisualizer:
             rsi_list = [14]
             df = add_indicators(df, ma_list, boll_len, boll_std, rsi_list)
         
-        # Detect indicator type
-        is_leveraged_etf_indicator = (
-            indicator_data 
-            and len(indicator_data) > 0 
-            and isinstance(indicator_data[0], LeveragedETFIndicatorData)
-        )
-        is_llm_trend_indicator = (
-            indicator_data 
-            and len(indicator_data) > 0 
-            and isinstance(indicator_data[0], LLMTrendIndicatorData)
-        )
+        # Determine number of rows based on config
+        num_rows = sum([
+            chart_config.show_price_panel,
+            chart_config.show_volume_panel,
+            chart_config.show_indicator_panel,
+            chart_config.show_equity_panel and equity_curve is not None,
+        ])
         
-        # Determine number of rows
-        num_rows = 3  # Price, Volume, Indicator
-        if show_equity and equity_curve:
-            num_rows = 4
+        if num_rows == 0:
+            raise ValueError("At least one panel must be enabled in chart_config")
         
-        # Row heights: Price (60%), Volume (10%), Indicator (20%), Equity (10% if shown)
-        if num_rows == 4:
-            row_heights = [0.55, 0.10, 0.20, 0.15]
-        else:
-            row_heights = [0.60, 0.10, 0.30]
-        
-        # Determine indicator panel title
-        if regime_history:
-            indicator_title = "Trend Indicator"
-        elif is_leveraged_etf_indicator:
-            indicator_title = "RSI & Indicators"
-        elif is_llm_trend_indicator:
-            indicator_title = "RSI & Indicators"
-        else:
-            indicator_title = "Revised MP2.0 Indicator"
+        # Get row heights and titles from config
+        row_heights = chart_config.get_row_heights()
+        subplot_titles = chart_config.get_subplot_titles(symbol)
         
         # Create subplots
         self.fig = make_subplots(
@@ -396,12 +418,7 @@ class PlotlyChartVisualizer:
             shared_xaxes=True,
             vertical_spacing=0.05,
             row_heights=row_heights,
-            subplot_titles=(
-                f"{symbol} Price",
-                "Volume",
-                indicator_title,
-                "Equity Curve" if show_equity and equity_curve else None,
-            ),
+            subplot_titles=subplot_titles,
         )
         
         # Apply theme
@@ -423,36 +440,57 @@ class PlotlyChartVisualizer:
             ),
         )
         
+        # Add panels based on config
+        current_row = 1
+        
         # Row 1: Price Chart
-        # For LeveragedETFIndicatorData or LLMTrendIndicatorData, also add Bollinger Bands
-        has_bb_data = is_leveraged_etf_indicator or is_llm_trend_indicator
-        self._add_price_chart(df, signals_df, row=1, indicator_df=indicator_df if has_bb_data else None)
+        if chart_config.show_price_panel:
+            indicator_df_for_price = indicator_df if chart_config.show_bollinger_bands else None
+            self._add_price_chart(
+                df, 
+                signals_df, 
+                row=current_row, 
+                indicator_df=indicator_df_for_price,
+                show_signals=chart_config.show_signals_on_price,
+            )
+            current_row += 1
         
         # Row 2: Volume
-        # For LeveragedETFIndicatorData, also add volume MA
-        self._add_volume_chart(df, row=2, indicator_df=indicator_df if is_leveraged_etf_indicator else None)
+        if chart_config.show_volume_panel:
+            indicator_df_for_volume = indicator_df if chart_config.show_volume_ma else None
+            self._add_volume_chart(df, row=current_row, indicator_df=indicator_df_for_volume)
+            current_row += 1
         
         # Row 3: Indicator
-        if regime_history:
-            self._add_trend_indicator_chart(regime_history, row=3)
-        elif is_leveraged_etf_indicator:
-            self._add_leveraged_etf_indicator_chart(indicator_df, signals_df, row=3)
-        elif is_llm_trend_indicator:
-            self._add_llm_trend_indicator_chart(indicator_df, signals_df, row=3)
-        elif indicator_df.empty and any(f"RSI{length}" in df.columns for length in [6, 14, 24]):
-            # If no indicator data but RSI calculated from bars, show basic RSI chart (like fastapi_stockchart)
-            self._add_basic_rsi_chart(df, row=3)
-        else:
-            self._add_indicator_chart(indicator_df, signals_df, row=3)
+        if chart_config.show_indicator_panel:
+            show_signals = chart_config.show_signals_on_indicator
+            if chart_config.indicator_type == IndicatorType.TREND_REGIME and regime_history:
+                self._add_trend_indicator_chart(regime_history, row=current_row, signals_df=signals_df if show_signals else pd.DataFrame(), show_signals=show_signals)
+            elif chart_config.indicator_type == IndicatorType.LEVERAGED_ETF:
+                self._add_leveraged_etf_indicator_chart(indicator_df, signals_df, row=current_row, show_signals=show_signals)
+            elif chart_config.indicator_type == IndicatorType.LLM_TREND:
+                self._add_llm_trend_indicator_chart(indicator_df, signals_df, row=current_row, show_signals=show_signals)
+            elif chart_config.indicator_type == IndicatorType.BASIC_RSI and any(f"RSI{length}" in df.columns for length in [6, 14, 24]):
+                self._add_basic_rsi_chart(df, row=current_row, signals_df=signals_df if show_signals else pd.DataFrame())
+            elif chart_config.indicator_type == IndicatorType.MYSTIC_PULSE:
+                self._add_indicator_chart(indicator_df, signals_df, row=current_row, show_signals=show_signals)
+            else:
+                # Fallback: try to determine from data
+                if indicator_df.empty and any(f"RSI{length}" in df.columns for length in [6, 14, 24]):
+                    self._add_basic_rsi_chart(df, row=current_row, signals_df=signals_df if show_signals else pd.DataFrame())
+                elif not indicator_df.empty:
+                    self._add_indicator_chart(indicator_df, signals_df, row=current_row, show_signals=show_signals)
+            current_row += 1
         
         # Row 4: Equity Curve (if provided)
-        if show_equity and equity_curve and num_rows == 4:
-            self._add_equity_chart(equity_curve, row=4)
+        if chart_config.show_equity_panel and equity_curve:
+            self._add_equity_chart(equity_curve, row=current_row)
         
         # Update layout to match fastapi_stockchart exactly
         self.fig.update_layout(
             margin=dict(l=40, r=40, t=60, b=40),
             xaxis_rangeslider_visible=False,
+            dragmode="pan",  # Enable panning mode (horizontal only when y-axes are fixed)
         )
         
         # Build rangebreaks: weekends + missing business days (holidays) - match fastapi_stockchart
@@ -479,16 +517,19 @@ class PlotlyChartVisualizer:
         )
         
         # Update y-axes
+        # Set fixedrange=True to prevent vertical panning (only horizontal panning allowed)
+        # This still allows zooming via scroll wheel, but prevents dragging vertically
         self.fig.update_yaxes(
             showgrid=True,
             gridcolor=self.theme["grid_color"],
             linecolor=self.theme["axis_color"],
             tickfont=dict(color=self.theme["axis_color"]),
+            fixedrange=True,  # Prevent vertical panning - only allow horizontal panning
         )
         
         return self.fig
     
-    def _add_price_chart(self, df: pd.DataFrame, signals_df: pd.DataFrame, row: int, indicator_df: Optional[pd.DataFrame] = None):
+    def _add_price_chart(self, df: pd.DataFrame, signals_df: pd.DataFrame, row: int, indicator_df: Optional[pd.DataFrame] = None, show_signals: bool = False):
         """Add price chart with candlesticks, signals, and optionally Bollinger Bands."""
         # Candlesticks - match fastapi_stockchart styling exactly
         self.fig.add_trace(
@@ -680,7 +721,9 @@ class PlotlyChartVisualizer:
                     col=1,
                 )
         
-        # Trading signals removed from price chart as requested
+        # Add trading signals if enabled
+        if show_signals and not signals_df.empty:
+            self._add_signals_to_chart(df, signals_df, row=row, panel="price")
     
     def _add_volume_chart(self, df: pd.DataFrame, row: int, indicator_df: Optional[pd.DataFrame] = None):
         """Add volume chart with optional volume MA."""
@@ -740,7 +783,7 @@ class PlotlyChartVisualizer:
         # Set y-axis to start at 0 for volume
         self.fig.update_yaxes(title_text="Volume", row=row, col=1, rangemode="tozero")
     
-    def _add_indicator_chart(self, indicator_df: pd.DataFrame, signals_df: pd.DataFrame, row: int):
+    def _add_indicator_chart(self, indicator_df: pd.DataFrame, signals_df: pd.DataFrame, row: int, show_signals: bool = False):
         """Add Revised MP2.0 indicator chart."""
         if indicator_df.empty:
             return
@@ -783,11 +826,15 @@ class PlotlyChartVisualizer:
                     line=dict(dash="dot", width=1, color=self.theme["grid_color"]),
                     showlegend=False,
                 ),
-                row=row,
-                col=1,
-            )
+                    row=row,
+                    col=1,
+                )
+        
+        # Add trading signals if enabled
+        if show_signals and not signals_df.empty:
+            self._add_signals_to_chart(indicator_df, signals_df, row=row, panel="indicator")
     
-    def _add_basic_rsi_chart(self, df: pd.DataFrame, row: int):
+    def _add_basic_rsi_chart(self, df: pd.DataFrame, row: int, signals_df: pd.DataFrame = pd.DataFrame()):
         """Add basic RSI chart from calculated indicators (like fastapi_stockchart)."""
         rsi_colors = self.theme.get("rsi_colors", {})
         
@@ -824,8 +871,12 @@ class PlotlyChartVisualizer:
                     row=row,
                     col=1,
                 )
+        
+        # Add trading signals if provided
+        if not signals_df.empty:
+            self._add_signals_to_chart(df, signals_df, row=row, panel="indicator")
     
-    def _add_leveraged_etf_indicator_chart(self, indicator_df: pd.DataFrame, signals_df: pd.DataFrame, row: int):
+    def _add_leveraged_etf_indicator_chart(self, indicator_df: pd.DataFrame, signals_df: pd.DataFrame, row: int, show_signals: bool = False):
         """Add Leveraged ETF indicator chart (RSI)."""
         if indicator_df.empty:
             return
@@ -944,7 +995,7 @@ class PlotlyChartVisualizer:
                     col=1,
                 )
     
-    def _add_llm_trend_indicator_chart(self, indicator_df: pd.DataFrame, signals_df: pd.DataFrame, row: int):
+    def _add_llm_trend_indicator_chart(self, indicator_df: pd.DataFrame, signals_df: pd.DataFrame, row: int, show_signals: bool = False):
         """Add LLM Trend Detection indicator chart (RSI)."""
         if indicator_df.empty:
             return
@@ -997,7 +1048,7 @@ class PlotlyChartVisualizer:
                     col=1,
                 )
     
-    def _add_trend_indicator_chart(self, regime_history: List[Dict[str, Any]], row: int):
+    def _add_trend_indicator_chart(self, regime_history: List[Dict[str, Any]], row: int, signals_df: Optional[pd.DataFrame] = None, show_signals: bool = False):
         """Add LLM trend indicator chart showing regime decisions."""
         if not regime_history:
             return
@@ -1072,6 +1123,10 @@ class PlotlyChartVisualizer:
                 row=row,
                 col=1,
             )
+        
+        # Add trading signals if enabled
+        if show_signals and signals_df is not None and not signals_df.empty:
+            self._add_signals_to_chart(df, signals_df, row=row, panel="indicator")
     
     def _add_equity_chart(self, equity_curve: Dict[datetime, float], row: int):
         """Add equity curve chart."""

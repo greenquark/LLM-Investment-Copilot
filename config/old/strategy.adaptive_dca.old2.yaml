@@ -1,0 +1,44 @@
+# Adaptive DCA Strategy Configuration - Fear & Greed Index Based
+
+# Trading symbol
+symbol: "TQQQ"  #  (QQQ, VOO, SOXL, TQQQ, etc.)
+
+
+# Timeframe - this is also in env.backtest.yaml and env.live.yaml
+timeframe: "1D"  # Daily timeframe (only supports: 1D, 1W, 1Q, 1Y)
+
+# Lookback period in days for fetching historical bars
+# Defaults: 5D (trading week), 20D (trading month), 60D (trading quarter), 252D (trading year)
+# Can be overridden here if needed
+lookback_days: 5  # Trading week (5 trading days) for 1D timeframe
+
+# starting cap
+starting_capital: 0.0  # Starting capital
+
+# contribution amount
+contribution_amount: 1000.0  # Weekly dollar amount to invest
+
+#contribution frequency
+contribution_frequency: "weekly"  # weekly, monthly, quarterly, yearly
+
+# Fear & Greed Index thresholds
+fgi_fear_max: 45            # FGI 0-45: Fear (buy base_buy_fraction of weekly + proportional of remaining cash)
+                             # At FGI=0: buy 100% of remaining cash
+                             # At FGI=45: buy 0% of remaining cash
+                             # Linear scaling between FGI 0 and 45
+fgi_greed_max: 75           # FGI 46-75: Neutral/Greed (buy base_buy_fraction of weekly contribution)
+fgi_extreme_greed_min: 99   # FGI >= 76: Extreme Greed (sell proportional to FGI, up to max_sell_fraction)
+
+# Base buy fraction (percentage of contribution to buy in Neutral/Greed and base for Fear)
+base_buy_fraction: 1     # Default: 0.95 (95% of weekly contribution)
+
+# Max sell fraction (maximum percentage of position to sell during extreme greed)
+max_sell_fraction: 0.01`   # Default: 0.2 (20% max sell at FGI=100)
+
+# Sell behavior during extreme greed
+sell_once_per_week: true  # If true, sell only once per week during extreme greed. If false, can sell multiple times if extreme greed persists.
+
+# Trading fees
+fee_per_trade: 0.0  # Fee per trade (e.g., 1.0 for $1 per trade)
+
+

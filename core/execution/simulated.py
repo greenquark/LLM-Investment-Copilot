@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Dict, List
+from typing import Dict, List, Optional
 from datetime import datetime
 from uuid import uuid4
 
@@ -28,10 +28,20 @@ class SimulatedExecutionEngine(ExecutionEngine):
     async def cancel_order(self, order_id: str) -> None:
         self._open_orders.pop(order_id, None)
 
-    async def process_pending(self) -> List[Fill]:
+    async def process_pending(self, timestamp: Optional[datetime] = None) -> List[Fill]:
+        """
+        Process pending orders and create fills.
+        
+        Args:
+            timestamp: Optional timestamp to use for fills. If None, uses datetime.utcnow().
+                      In backtests, this should be the decision timestamp.
+        
+        Returns:
+            List of Fill objects for executed orders
+        """
         fills: List[Fill] = []
         to_delete: List[str] = []
-        now = datetime.utcnow()
+        now = timestamp if timestamp is not None else datetime.utcnow()
 
         for oid, order in list(self._open_orders.items()):
             px = self._last_price.get(order.symbol)

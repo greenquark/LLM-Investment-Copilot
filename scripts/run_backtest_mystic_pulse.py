@@ -32,6 +32,7 @@ from core.visualization import (
     LocalChartVisualizer,
     PlotlyChartVisualizer,
 )
+from core.visualization.chart_config import get_chart_config
 
 async def main(use_local_chart: bool = False):
     # Use absolute paths for config files
@@ -355,6 +356,7 @@ async def main(use_local_chart: bool = False):
                     # Use Plotly (recommended)
                     print("\n=== Starting Plotly Chart Visualization ===")
                     visualizer = PlotlyChartVisualizer(theme="tradingview", figsize=(1400, 900))
+                    chart_config = get_chart_config("mystic_pulse")
                     visualizer.build_chart(
                         bars=bars,
                         signals=signals,
@@ -363,6 +365,8 @@ async def main(use_local_chart: bool = False):
                         metrics=metrics_dict,
                         symbol=symbol,
                         show_equity=True,
+                        chart_config=chart_config,
+                        strategy_name="mystic_pulse",
                     )
                     print("Opening interactive chart in browser...")
                     visualizer.show(renderer="browser")

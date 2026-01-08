@@ -1,5 +1,6 @@
 from __future__ import annotations
-from typing import Dict, List
+from typing import Dict, List, Optional
+from datetime import datetime
 import asyncio
 
 from core.execution.base import ExecutionEngine
@@ -69,6 +70,15 @@ class MoomooExecutionEngine(ExecutionEngine):
         await asyncio.to_thread(_cancel)
         self._open_orders.pop(order_id, None)
 
-    async def process_pending(self) -> List[Fill]:
+    async def process_pending(self, timestamp: Optional[datetime] = None) -> List[Fill]:
+        """
+        Process in-flight orders and return fills.
+        
+        Args:
+            timestamp: Optional timestamp (ignored in live trading, uses actual fill time)
+        
+        Returns:
+            List of Fill objects for executed orders
+        """
         # TODO: poll moomoo for fills and translate into Fill objects.
         return []

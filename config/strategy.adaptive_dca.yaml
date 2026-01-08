@@ -1,0 +1,60 @@
+# Adaptive DCA Strategy Configuration (FGI-driven) - FIXED V2
+# Note: symbol is configured in env.backtest.yaml, not here
+
+
+# Contribution schedule (adds cash to portfolio, buys only happen in Fear)
+contribution_frequency: "weekly"     # weekly | monthly | quarterly | yearly
+contribution_amount: 1000.0          # alias weekly_contribution is also accepted
+
+# Deployment parameters
+base_buy_fraction: 0.90              # fraction of this period's contribution that is "base buy" when Fear
+#keep_cash_fraction: 0.30             # cash to keep from this period's contribution (min remaining cash)
+
+# FGI thresholds (all inclusive ranges)
+fgi_extreme_fear_max: 25.00    # Extreme Fear: 0-25.00 inclusive
+fgi_fear_max: 45.00            # Fear: 25.00-45.00 inclusive
+fgi_neutral_max: 55.00         # Neutral: 45.00-55.00 inclusive
+fgi_greed_max: 75.00           # Greed: 55.00-75.00 inclusive
+fgi_extreme_greed_min: 76.00   # Extreme Greed: 76.00-100.00 inclusive
+fgi_max: 100.00                # Maximum FGI value
+
+# Action names for logging and decision tracking (optional - defaults shown)
+action_extreme_fear: "BUY_FEAR"
+action_fear: "BUY_FEAR"
+action_neutral: "BUY_NEUTRAL_GREED"
+action_greed: "BUY_NEUTRAL_GREED"
+action_extreme_greed_sell: "SELL_PROPORTIONAL"
+action_extreme_greed_hold: "HOLD"
+action_hold: "HOLD"
+
+# Extreme greed trimming
+max_sell_fraction: 0.50              # Sell up to x% of current shares but no more.  
+sell_once_per_week: true
+
+# Data fetch
+# Lookback period in days for fetching historical bars
+# Defaults: 5D (trading week), 20D (trading month), 60D (trading quarter), 252D (trading year)
+# Can be overridden here if needed
+lookback_days: 5
+fee_per_trade: 0.0
+
+# --- Test matrix (for quick parameter sweeps / grid search) ---
+# test_matrix:
+#   mildly_aggressive:
+#     base_buy_fraction: 0.90
+#     keep_cash_fraction: 0.10
+#     max_sell_fraction: 0.20
+#     fgi_fear_max: 45
+#     fgi_extreme_greed_min: 76
+#   aggressive:
+#     base_buy_fraction: 0.95
+#     keep_cash_fraction: 0.05
+#     max_sell_fraction: 0.25
+#     fgi_fear_max: 50
+#     fgi_extreme_greed_min: 75
+#   conservative:
+#     base_buy_fraction: 0.80
+#     keep_cash_fraction: 0.20
+#     max_sell_fraction: 0.15
+#     fgi_fear_max: 40
+#     fgi_extreme_greed_min: 80

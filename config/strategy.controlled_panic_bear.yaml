@@ -1,0 +1,31 @@
+# Controlled Panic Bear Strategy Configuration
+
+# Trading symbol
+symbol: "SPY"  # Underlying symbol (SPY, SPX, QQQ, etc.)
+vix_symbol: "^VIX"  # VIX symbol (^VIX for Yahoo Finance)
+
+# Timeframe
+timeframe: "1D"  # Daily timeframe
+
+# VIX thresholds
+vix_min: 20.0  # Minimum VIX level
+vix_mult: 1.2  # VIX must be >= vix_ma10 * vix_mult
+
+# CNN Fear & Greed Index thresholds
+cnn_min: 5.0   # Minimum CNN Fear & Greed (extreme fear)
+cnn_max: 25.0  # Maximum CNN Fear & Greed (fear range)
+
+# Price action thresholds
+ret3d_min: -0.03  # Minimum 3-day return (negative, i.e., -3%)
+
+# Position sizing (as fraction of portfolio)
+core_size: 0.015   # Put spread size (1.5%)
+diag_size: 0.01    # Diagonal spread size (1%)
+lotto_size: 0.01   # Lotto put size (1%)
+
+# Maximum exposure limits (as fraction of portfolio)
+max_core_exposure: 0.06   # Maximum core (put spread) exposure (6%)
+max_diag_exposure: 0.04   # Maximum diagonal exposure (4%)
+max_lotto_exposure: 0.02  # Maximum lotto put exposure (2%)
+max_total_exposure: 0.08  # Maximum total exposure (8%)
+

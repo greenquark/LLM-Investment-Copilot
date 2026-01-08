@@ -45,6 +45,7 @@ from core.strategy.leveraged_etf_vol_swing import LeveragedETFVolSwingStrategy, 
 from core.utils.logging import Logger
 from core.utils.config_loader import load_config_with_secrets
 from core.visualization import PlotlyChartVisualizer
+from core.visualization.chart_config import get_chart_config
 
 
 async def main(use_local_chart: bool = False):
@@ -340,6 +341,7 @@ async def main(use_local_chart: bool = False):
                     "max_drawdown": result.metrics.max_drawdown,
                 }
                 
+                chart_config = get_chart_config("leveraged_etf")
                 chart = visualizer.build_chart(
                     bars=bars,
                     signals=signals,
@@ -347,6 +349,8 @@ async def main(use_local_chart: bool = False):
                     equity_curve=result.equity_curve,
                     metrics=metrics_dict,
                     symbol=strategy_config.bull_etf_symbol,
+                    chart_config=chart_config,
+                    strategy_name="leveraged_etf",
                     show_equity=True,
                 )
                 

@@ -1,0 +1,19 @@
+# Regular DCA Strategy Configuration
+# Note: symbol is configured in env.backtest.yaml, not here
+
+timeframe: "1D"
+
+# Starting capital
+starting_capital: 10.0  # Starting capital
+
+# Contribution schedule
+contribution_frequency: "weekly"     # weekly | monthly | quarterly | yearly
+contribution_amount: 1000.0          # alias weekly_contribution is also accepted
+
+# Data fetch
+# Lookback period in days for fetching historical bars
+# Defaults: 5D (trading week), 20D (trading month), 60D (trading quarter), 252D (trading year)
+# Can be overridden here if needed
+lookback_days: 5
+fee_per_trade: 0.0
+

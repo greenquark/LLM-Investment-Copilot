@@ -5,10 +5,12 @@ from pathlib import Path
 import logging
 import argparse
 import yaml
-from typing import List, Dict
+from typing import List, Dict, Optional, Tuple
 
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
+
+from core.models.fill import Fill
 
 from core.data.factory import create_data_engine_from_config
 from core.backtest.scheduler import DecisionScheduler
@@ -20,6 +22,7 @@ from core.visualization import (
     LocalChartVisualizer,
     PlotlyChartVisualizer,
 )
+from core.visualization.chart_config import get_chart_config
 
 from core.strategy.llm_trend_detection import (
     LLMTrendDetectionStrategy,
@@ -101,6 +104,128 @@ def _analyze_trend_periods(regime_history: List[Dict]) -> List[Dict]:
         })
     
     return periods
+
+
+def _print_trades(engine, symbol: str) -> None:
+    """
+    Print all trades from the backtest execution engine.
+    
+    Args:
+        engine: BacktestEngine instance (after run completes)
+        symbol: Trading symbol
+    """
+    # Access fills from the execution engine
+    if not hasattr(engine, '_exec_engine') or engine._exec_engine is None:
+        print("\n=== Trades ===")
+        print("No execution engine available (no trades executed)")
+        return
+    
+    fills = engine._exec_engine._fills
+    if not fills:
+        print("\n=== Trades ===")
+        print("No trades executed during backtest")
+        return
+    
+    # Sort fills by timestamp
+    fills_sorted = sorted(fills, key=lambda f: f.timestamp)
+    
+    # Group fills into trades (entry/exit pairs)
+    # Track entry fills with remaining quantities (don't modify original Fill objects)
+    trades: List[Dict] = []
+    entry_fills: List[Tuple[Fill, int]] = []  # (fill, remaining_quantity)
+    
+    for fill in fills_sorted:
+        if fill.symbol != symbol:
+            continue
+        
+        if fill.quantity > 0:
+            # Buy - add to entry fills with full quantity
+            entry_fills.append((fill, fill.quantity))
+        else:
+            # Sell - match with entry fills (FIFO)
+            remaining_sell_qty = abs(fill.quantity)
+            
+            while remaining_sell_qty > 0 and entry_fills:
+                entry_fill, entry_remaining_qty = entry_fills[0]
+                
+                if entry_remaining_qty <= remaining_sell_qty:
+                    # Close entire entry
+                    trade_qty = entry_remaining_qty
+                    entry_fills.pop(0)
+                    remaining_sell_qty -= entry_remaining_qty
+                else:
+                    # Partial close
+                    trade_qty = remaining_sell_qty
+                    entry_fills[0] = (entry_fill, entry_remaining_qty - remaining_sell_qty)
+                    remaining_sell_qty = 0
+                
+                # Calculate P&L for this trade
+                pnl = (fill.price - entry_fill.price) * trade_qty
+                pnl_pct = ((fill.price / entry_fill.price) - 1) * 100 if entry_fill.price > 0 else 0.0
+                
+                trades.append({
+                    'entry_date': entry_fill.timestamp,
+                    'exit_date': fill.timestamp,
+                    'entry_price': entry_fill.price,
+                    'exit_price': fill.price,
+                    'quantity': trade_qty,
+                    'pnl': pnl,
+                    'pnl_pct': pnl_pct,
+                })
+    
+    # Handle any remaining open positions (not closed)
+    for entry_fill, remaining_qty in entry_fills:
+        trades.append({
+            'entry_date': entry_fill.timestamp,
+            'exit_date': None,  # Still open
+            'entry_price': entry_fill.price,
+            'exit_price': None,
+            'quantity': remaining_qty,
+            'pnl': None,  # Unrealized
+            'pnl_pct': None,
+        })
+    
+    # Print trades
+    print("\n=== Trades ===")
+    if not trades:
+        print("No trades executed")
+        return
+    
+    print(f"\nTotal Trades: {len(trades)}")
+    print(f"{'#':<4} {'Entry Date':<12} {'Exit Date':<12} {'Qty':<8} {'Entry $':<10} {'Exit $':<10} {'P&L $':<12} {'P&L %':<10}")
+    print("-" * 90)
+    
+    total_pnl = 0.0
+    closed_trades = 0
+    open_trades = 0
+    
+    for i, trade in enumerate(trades, 1):
+        entry_date_str = trade['entry_date'].strftime('%Y-%m-%d')
+        exit_date_str = trade['exit_date'].strftime('%Y-%m-%d') if trade['exit_date'] else 'OPEN'
+        qty = trade['quantity']
+        entry_price = trade['entry_price']
+        exit_price = trade['exit_price'] if trade['exit_price'] is not None else 'N/A'
+        
+        if trade['pnl'] is not None:
+            pnl_str = f"${trade['pnl']:+,.2f}"
+            pnl_pct_str = f"{trade['pnl_pct']:+.2f}%"
+            total_pnl += trade['pnl']
+            closed_trades += 1
+        else:
+            pnl_str = "UNREALIZED"
+            pnl_pct_str = "N/A"
+            open_trades += 1
+        
+        print(f"{i:<4} {entry_date_str:<12} {exit_date_str:<12} {qty:<8} "
+              f"${entry_price:<9.2f} ${str(exit_price):<9} {pnl_str:<12} {pnl_pct_str:<10}")
+    
+    print("-" * 90)
+    print(f"\nClosed Trades: {closed_trades}")
+    print(f"Open Trades: {open_trades}")
+    if closed_trades > 0:
+        avg_pnl = total_pnl / closed_trades
+        print(f"Total Realized P&L: ${total_pnl:+,.2f}")
+        print(f"Average P&L per Trade: ${avg_pnl:+,.2f}")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -201,6 +326,7 @@ async def run_backtest_llm_trend_detection(use_local_chart: bool = False):
     )
 
     print("\n=== LLM_Trend_Detection Backtest Results ===")
+    print("\n=== NOTE - Trend signals are not intended to be trading signals. It is intended to be used for trend detection and analysis. This is for debugging only===")
 
     equity_items = sorted(result.equity_curve.items(), key=lambda x: x[0])
     if equity_items:
@@ -222,6 +348,9 @@ async def run_backtest_llm_trend_detection(use_local_chart: bool = False):
     )
     print(f"Strategy Return: {result.metrics.total_return:.2%}")
     print(f"Buy&Hold Return: {bh.metrics.total_return:.2%}")
+
+    # Print trades for debugging
+    _print_trades(engine, symbol)
 
     # Print regime decision summary
     regime_history = strategy.get_regime_history()
@@ -306,6 +435,7 @@ async def run_backtest_llm_trend_detection(use_local_chart: bool = False):
         chart.close()
     else:
         visualizer = PlotlyChartVisualizer(theme="tradingview", figsize=(1400, 900))
+        chart_config = get_chart_config("llm_trend", use_regime_history=regime_history is not None)
         visualizer.build_chart(
             bars=bars,
             signals=signals,
@@ -315,6 +445,8 @@ async def run_backtest_llm_trend_detection(use_local_chart: bool = False):
             symbol=symbol,
             show_equity=True,
             regime_history=regime_history,  # Pass regime history for trend indicator
+            chart_config=chart_config,
+            strategy_name="llm_trend",
         )
         print("Opening interactive chart in browser...")
         visualizer.show(renderer="browser")

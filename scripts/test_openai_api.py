@@ -113,7 +113,7 @@ async def test_openai_api():
         try:
             config = load_config_with_secrets(config_file, strategy_name="llm_trend_detection")
             preferred_model = config.get("llm_model")
-                if preferred_model and preferred_model not in models_to_try:
+            if preferred_model and preferred_model not in models_to_try:
                     # Add user's preferred model to the front of the list
                     models_to_try.insert(0, preferred_model)
         except Exception:

@@ -52,10 +52,30 @@ Thumbs.db
 # Environment and secrets
 .env
 *.env
+.env.local
+.env.*.local
+
+# Secrets files - contains actual API tokens - never commit these!
 config/*.secret.yaml
 config/*.local.yaml
-# Secrets file - contains actual API tokens - never commit this!
 config/secrets.yaml
 /secrets.yaml
 **/secrets.yaml
+**/*secrets*.yaml
+**/*secrets*.yml
+
+# API keys and credentials
+**/*.key
+**/*.pem
+**/*credentials*.yaml
+**/*credentials*.yml
+**/*credentials*.json
+**/*api_key*
+**/*api_token*
+**/*secret_key*
+**/*access_token*
+
+# Local overrides (may contain secrets)
+config/*.local.*
+*.local.*
 
