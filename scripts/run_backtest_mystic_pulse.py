@@ -146,6 +146,17 @@ async def main(use_local_chart: bool = False):
     end = datetime.fromisoformat(bt_cfg["end"])
     initial_cash = bt_cfg["initial_cash"]
     
+    # Print backtest date range
+    print("\n" + "=" * 80)
+    print("BACKTEST DATE RANGE")
+    print("=" * 80)
+    print(f"Start Date: {start.date()}")
+    print(f"End Date:   {end.date()}")
+    print(f"Initial Cash: ${initial_cash:,.2f}")
+    print(f"Timeframe: {strategy_config.timeframe}")
+    print("=" * 80)
+    print()
+    
     logger.log(f"Starting Revised MP2.0 backtest for {symbol} from {start} to {end} with ${initial_cash:,.2f}")
     logger.log(f"Strategy config: ADX={strategy_config.adx_length}, Smoothing={strategy_config.smoothing_factor}, MinScore={strategy_config.min_trend_score}")
     logger.log(f"Capital deployment: {strategy_config.capital_deployment_pct*100:.0f}% per trade")

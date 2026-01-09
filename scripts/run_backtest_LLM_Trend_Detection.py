@@ -286,6 +286,7 @@ async def run_backtest_llm_trend_detection(use_local_chart: bool = False):
         rsi_length=strat_cfg_raw.get("rsi_length", 14),
         llm_model=strat_cfg_raw.get("llm_model", "gpt-5-mini"),
         llm_temperature=strat_cfg_raw.get("llm_temperature", 0.0),
+        llm_timeout=strat_cfg_raw.get("llm_timeout", 180.0),
         use_llm=strat_cfg_raw.get("use_llm", True),
         openai_api_key=strat_cfg_raw.get("openai_api_key"),  # Read from config
         enable_trading=strat_cfg_raw.get("enable_trading", True),  # Enable trading for performance testing
@@ -312,6 +313,17 @@ async def run_backtest_llm_trend_detection(use_local_chart: bool = False):
     start = datetime.fromisoformat(bt_cfg["start"])
     end = datetime.fromisoformat(bt_cfg["end"])
     initial_cash = bt_cfg["initial_cash"]
+
+    # Print backtest date range
+    print("\n" + "=" * 80)
+    print("BACKTEST DATE RANGE")
+    print("=" * 80)
+    print(f"Start Date: {start.date()}")
+    print(f"End Date:   {end.date()}")
+    print(f"Initial Cash: ${initial_cash:,.2f}")
+    print(f"Timeframe: {cfg.timeframe}")
+    print("=" * 80)
+    print()
 
     logger.log(
         f"Starting LLM_Trend_Detection Backtest for {symbol} "

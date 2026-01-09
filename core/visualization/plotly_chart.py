@@ -1128,6 +1128,108 @@ class PlotlyChartVisualizer:
         if show_signals and signals_df is not None and not signals_df.empty:
             self._add_signals_to_chart(df, signals_df, row=row, panel="indicator")
     
+    def _add_signals_to_chart(self, df: pd.DataFrame, signals_df: pd.DataFrame, row: int, panel: str = "price"):
+        """
+        Add trading signal markers (buy/sell) to the chart.
+        
+        Args:
+            df: DataFrame with timestamp index/column for alignment
+            signals_df: DataFrame with columns: timestamp, price, side
+            row: Subplot row number
+            panel: Panel type ("price" or "indicator") - determines y-position
+        """
+        if signals_df.empty:
+            return
+        
+        # Ensure signals_df has timestamp column
+        if "timestamp" not in signals_df.columns:
+            return
+        
+        # Convert timestamp to datetime if needed
+        signals_df = signals_df.copy()
+        signals_df["timestamp"] = pd.to_datetime(signals_df["timestamp"])
+        
+        # Get timestamp column from df
+        if "timestamp" in df.columns:
+            df_timestamps = pd.to_datetime(df["timestamp"])
+        elif isinstance(df.index, pd.DatetimeIndex):
+            df_timestamps = df.index
+        else:
+            return  # Can't align signals without timestamps
+        
+        # Filter buy and sell signals
+        buy_signals = signals_df[signals_df["side"].str.upper() == "BUY"]
+        sell_signals = signals_df[signals_df["side"].str.upper() == "SELL"]
+        
+        # Determine y-position based on panel type
+        if panel == "price":
+            # For price panel, use the signal price
+            if not buy_signals.empty:
+                buy_y = buy_signals["price"].values
+            else:
+                buy_y = []
+            
+            if not sell_signals.empty:
+                sell_y = sell_signals["price"].values
+            else:
+                sell_y = []
+        else:
+            # For indicator panel, position at top/bottom of indicator range
+            if not df.empty:
+                if "timestamp" in df.columns:
+                    y_min = df.select_dtypes(include=[np.number]).min().min()
+                    y_max = df.select_dtypes(include=[np.number]).max().max()
+                else:
+                    y_min = df.select_dtypes(include=[np.number]).min().min()
+                    y_max = df.select_dtypes(include=[np.number]).max().max()
+                
+                # Position buy signals near top, sell signals near bottom
+                buy_y = [y_max * 0.95] * len(buy_signals) if not buy_signals.empty else []
+                sell_y = [y_min * 1.05] * len(sell_signals) if not sell_signals.empty else []
+            else:
+                buy_y = []
+                sell_y = []
+        
+        # Add buy signal markers
+        if not buy_signals.empty and len(buy_y) > 0:
+            self.fig.add_trace(
+                go.Scatter(
+                    x=buy_signals["timestamp"],
+                    y=buy_y,
+                    mode="markers",
+                    name="Buy",
+                    marker=dict(
+                        symbol="triangle-up",
+                        size=12,
+                        color=self.theme["buy_signal"],
+                        line=dict(width=1, color="white"),
+                    ),
+                    hovertemplate="Buy @ %{y:.2f}<br>%{x}<extra></extra>",
+                ),
+                row=row,
+                col=1,
+            )
+        
+        # Add sell signal markers
+        if not sell_signals.empty and len(sell_y) > 0:
+            self.fig.add_trace(
+                go.Scatter(
+                    x=sell_signals["timestamp"],
+                    y=sell_y,
+                    mode="markers",
+                    name="Sell",
+                    marker=dict(
+                        symbol="triangle-down",
+                        size=12,
+                        color=self.theme["sell_signal"],
+                        line=dict(width=1, color="white"),
+                    ),
+                    hovertemplate="Sell @ %{y:.2f}<br>%{x}<extra></extra>",
+                ),
+                row=row,
+                col=1,
+            )
+    
     def _add_equity_chart(self, equity_curve: Dict[datetime, float], row: int):
         """Add equity curve chart."""
         if not equity_curve:

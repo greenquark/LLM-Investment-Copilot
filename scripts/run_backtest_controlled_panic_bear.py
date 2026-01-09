@@ -144,6 +144,17 @@ async def main(use_local_chart: bool = False):
             f"Trading calendar unavailable, using original end date {end_date_original}: {e}"
         )
     
+    # Print backtest date range
+    print("\n" + "=" * 80)
+    print("BACKTEST DATE RANGE")
+    print("=" * 80)
+    print(f"Start Date: {start.date()}")
+    print(f"End Date:   {end.date()}")
+    print(f"Initial Cash: ${initial_cash:,.2f}")
+    print(f"Timeframe: {timeframe}")
+    print("=" * 80)
+    print()
+    
     logger.log(
         f"Starting Controlled Panic Bear Backtest for {symbol} "
         f"{start.date()} → {end.date()} | initial_cash=${initial_cash:,.2f}"

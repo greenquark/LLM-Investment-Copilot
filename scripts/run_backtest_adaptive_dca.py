@@ -705,21 +705,37 @@ async def main(use_local_chart: bool = False):
     # Get timeframe from strategy config or env config
     timeframe = strategy_config.timeframe or env_cfg.get("backtest", {}).get("timeframe", "1D")
     
+    # Parse backtest date range
+    start = datetime.fromisoformat(bt_cfg["start"])
+    end = datetime.fromisoformat(bt_cfg["end"])
+    initial_cash = bt_cfg["initial_cash"]
+    
+    # Print backtest date range
+    print("\n" + "=" * 80)
+    print("BACKTEST DATE RANGE")
+    print("=" * 80)
+    print(f"Start Date: {start.date()}")
+    print(f"End Date:   {end.date()}")
+    print(f"Initial Cash: ${initial_cash:,.2f}")
+    print(f"Timeframe: {timeframe}")
+    print("=" * 80)
+    print()
+    
     # Run comparison
     result, dca_result, strategy = await compare_adaptive_dca_vs_dca(
         data_engine,
         symbol,
         strategy_config,
-        datetime.fromisoformat(bt_cfg["start"]),
-        datetime.fromisoformat(bt_cfg["end"]),
-        bt_cfg["initial_cash"],
+        start,
+        end,
+        initial_cash,
         timeframe=timeframe,
     )
     
     # Generate chart visualization
     print(f"\n=== Starting Chart Visualization ===")
     try:
-        bars = await data_engine.get_bars(symbol, datetime.fromisoformat(bt_cfg["start"]), datetime.fromisoformat(bt_cfg["end"]), timeframe)
+        bars = await data_engine.get_bars(symbol, start, end, timeframe)
         
         if bars:
             # Get signals from strategy
@@ -753,7 +769,7 @@ async def main(use_local_chart: bool = False):
             # Optionally save to HTML
             save_html = input("\nSave chart to HTML file? (y/n): ").strip().lower()
             if save_html == 'y':
-                output_file = project_root / "charts" / f"adaptive_dca_{datetime.fromisoformat(bt_cfg['start']).date()}_to_{datetime.fromisoformat(bt_cfg['end']).date()}.html"
+                output_file = project_root / "charts" / f"adaptive_dca_{start.date()}_to_{end.date()}.html"
                 output_file.parent.mkdir(parents=True, exist_ok=True)
                 visualizer.to_html(str(output_file))
                 print(f"✅ Chart saved to: {output_file}")

@@ -152,6 +152,17 @@ async def main(use_local_chart: bool = False):
     end = datetime.fromisoformat(bt_cfg["end"])
     initial_cash = bt_cfg["initial_cash"]
     
+    # Print backtest date range
+    print("\n" + "=" * 80)
+    print("BACKTEST DATE RANGE")
+    print("=" * 80)
+    print(f"Start Date: {start.date()}")
+    print(f"End Date:   {end.date()}")
+    print(f"Initial Cash: ${initial_cash:,.2f}")
+    print(f"Timeframe: {strategy_config.timeframe}")
+    print("=" * 80)
+    print()
+    
     logger.log(f"Starting Leveraged ETF Volatility Swing backtest from {start} to {end} with ${initial_cash:,.2f}")
     logger.log(f"Strategy config:")
     logger.log(f"  Regime symbol: {strategy_config.regime_symbol} (underlying index)")

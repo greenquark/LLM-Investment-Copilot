@@ -66,6 +66,16 @@ async def main():
     end = datetime.fromisoformat(bt_cfg["end"])
     initial_cash = bt_cfg["initial_cash"]
     
+    # Print backtest date range
+    print("\n" + "=" * 80)
+    print("BACKTEST DATE RANGE")
+    print("=" * 80)
+    print(f"Start Date: {start.date()}")
+    print(f"End Date:   {end.date()}")
+    print(f"Initial Cash: ${initial_cash:,.2f}")
+    print("=" * 80)
+    print()
+    
     logger.log(f"Starting backtest for {symbol} from {start} to {end} with ${initial_cash:,.2f}")
     logger.log("Press Ctrl-C to stop the backtest early and see partial results")
     
