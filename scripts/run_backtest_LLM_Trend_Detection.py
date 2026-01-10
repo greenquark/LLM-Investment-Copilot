@@ -16,6 +16,7 @@ from core.data.factory import create_data_engine_from_config
 from core.backtest.scheduler import DecisionScheduler
 from core.backtest.engine import BacktestEngine
 from core.backtest.benchmarks import run_buy_and_hold
+from core.backtest.performance import evaluate_performance
 from core.utils.logging import Logger
 from core.utils.config_loader import load_config_with_secrets
 from core.visualization import (
@@ -227,10 +228,24 @@ def _print_trades(engine, symbol: str) -> None:
         print(f"Total Realized P&L: ${total_pnl:+,.2f}")
         print(f"Average P&L per Trade: ${avg_pnl:+,.2f}")
 
+# Custom formatter to indent INFO messages for better readability
+class IndentedInfoFormatter(logging.Formatter):
+    """Formatter that indents INFO level messages."""
+    def format(self, record):
+        # Indent INFO messages with 2 spaces
+        if record.levelno == logging.INFO:
+            record.msg = f"  {record.msg}"
+        return super().format(record)
+
+# Configure logging with indented INFO messages
+handler = logging.StreamHandler()
+handler.setFormatter(IndentedInfoFormatter(
+    fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+))
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[handler],
 )
 
 
@@ -337,6 +352,9 @@ async def run_backtest_llm_trend_detection(use_local_chart: bool = False):
         symbol, strategy, start, end, initial_cash, timeframe=cfg.timeframe
     )
 
+    # Recalculate metrics from equity curve (engine returns dummy metrics)
+    result.metrics = evaluate_performance(result.equity_curve)
+
     print("\n=== LLM_Trend_Detection Backtest Results ===")
     print("\n=== NOTE - Trend signals are not intended to be trading signals. It is intended to be used for trend detection and analysis. This is for debugging only===")
 
@@ -418,6 +436,31 @@ async def run_backtest_llm_trend_detection(use_local_chart: bool = False):
 
     print("\n=== Chart ===")
     bars = await data_engine.get_bars(symbol, start, end, cfg.timeframe)
+    
+    # Diagnostic: Check for date gaps in bars
+    if bars:
+        from datetime import date
+        bar_dates = sorted([b.timestamp.date() for b in bars])
+        print(f"Retrieved {len(bars)} bars for charting")
+        print(f"Bar date range: {bar_dates[0]} to {bar_dates[-1]}")
+        print(f"Expected range: {start.date()} to {end.date()}")
+        
+        # Check for gaps in August 2024
+        aug_bars = [d for d in bar_dates if d.month == 8 and d.year == 2024]
+        if aug_bars:
+            print(f"\nAugust 2024 bars: {len(aug_bars)} dates")
+            # Check for gaps around Aug 5-12
+            aug_5_12 = [d for d in aug_bars if date(2024, 8, 5) <= d <= date(2024, 8, 12)]
+            if aug_5_12:
+                print(f"Aug 5-12 bars: {[str(d) for d in aug_5_12]}")
+                if len(aug_5_12) < 6:
+                    print(f"WARNING: Expected 6 trading days (Aug 5-9, 12), found {len(aug_5_12)}")
+                    from core.data import get_trading_days
+                    expected_days = get_trading_days(date(2024, 8, 5), date(2024, 8, 12))
+                    missing = [d for d in expected_days if d not in aug_5_12]
+                    if missing:
+                        print(f"Missing dates: {[str(d) for d in missing]}")
+    
     signals = strategy.get_signals()
     # Use LLM indicator history which includes BB and RSI
     indicator_data = strategy.get_llm_indicator_history()

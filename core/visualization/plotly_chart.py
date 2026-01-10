@@ -168,15 +168,41 @@ def get_theme(theme_name: str) -> Dict[str, str]:
 
 def bars_to_dataframe(bars: List[Bar]) -> pd.DataFrame:
     """Convert list of Bar objects to pandas DataFrame."""
+    if not bars:
+        return pd.DataFrame()
+    
+    # Remove duplicates by timestamp (keep last occurrence if duplicates exist)
+    # This prevents pandas from having duplicate index values which could cause issues
+    seen_timestamps = {}
+    unique_bars = []
+    for bar in bars:
+        # Use date() for daily bars to normalize timestamps to same day
+        # This handles cases where timestamps might have different times but same date
+        if bar.timeframe.upper() in ("D", "1D"):
+            key = bar.timestamp.date()
+        else:
+            key = bar.timestamp
+        
+        # Keep the last bar for each unique timestamp/date
+        seen_timestamps[key] = bar
+    
+    unique_bars = list(seen_timestamps.values())
+    
     data = {
-        "Open": [b.open for b in bars],
-        "High": [b.high for b in bars],
-        "Low": [b.low for b in bars],
-        "Close": [b.close for b in bars],
-        "Volume": [b.volume for b in bars],
+        "Open": [b.open for b in unique_bars],
+        "High": [b.high for b in unique_bars],
+        "Low": [b.low for b in unique_bars],
+        "Close": [b.close for b in unique_bars],
+        "Volume": [b.volume for b in unique_bars],
     }
-    df = pd.DataFrame(data, index=[b.timestamp for b in bars])
+    df = pd.DataFrame(data, index=[b.timestamp for b in unique_bars])
     df = df.sort_index()
+    
+    # Remove any remaining duplicate indices (keep last)
+    if df.index.duplicated().any():
+        df = df[~df.index.duplicated(keep='last')]
+        df = df.sort_index()
+    
     return df
 
 
@@ -493,19 +519,36 @@ class PlotlyChartVisualizer:
             dragmode="pan",  # Enable panning mode (horizontal only when y-axes are fixed)
         )
         
-        # Build rangebreaks: weekends + missing business days (holidays) - match fastapi_stockchart
+        # Build rangebreaks: only skip non-trading days (weekends + holidays)
+        # Missing trading days will show as gaps in the chart (not hidden)
         rangebreaks = [dict(bounds=["sat", "mon"])]
         if not df.empty:
-            idx_dates = pd.to_datetime(df.index).normalize()
-            all_bus_days = pd.date_range(
-                start=idx_dates.min(),
-                end=idx_dates.max(),
-                freq="B",
-            )
-            present_days = pd.Index(idx_dates.unique())
-            missing_days = all_bus_days.difference(present_days)
-            if len(missing_days) > 0:
-                rangebreaks.append(dict(values=missing_days))
+            try:
+                from core.data import is_trading_day
+                idx_dates = pd.to_datetime(df.index).normalize()
+                # Get all dates in the range
+                all_dates = pd.date_range(
+                    start=idx_dates.min(),
+                    end=idx_dates.max(),
+                    freq="D",
+                )
+                # Find non-trading days (weekends + holidays) to hide
+                non_trading_days = []
+                for date_val in all_dates:
+                    date_obj = date_val.date()
+                    if not is_trading_day(date_obj):
+                        non_trading_days.append(date_val)
+                
+                if len(non_trading_days) > 0:
+                    rangebreaks.append(dict(values=non_trading_days))
+            except Exception as e:
+                # If trading calendar check fails, fallback to just weekends
+                # Log warning but don't break the chart
+                import logging
+                logging.getLogger(__name__).warning(
+                    f"Failed to check trading days for rangebreaks: {e}. "
+                    "Falling back to weekend-only rangebreaks."
+                )
         
         # Update x-axes with gap removal
         self.fig.update_xaxes(

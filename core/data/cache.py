@@ -1,4 +1,6 @@
 from __future__ import annotations
+import os
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, date
 from pathlib import Path
@@ -55,7 +57,8 @@ class DataCache:
                 f"Error: {error_msg}. "
                 f"Try reinstalling: pip install --upgrade --force-reinstall pandas pyarrow numpy"
             )
-        self._cache_dir = Path(cache_dir)
+        cache_dir = cache_dir or os.getenv('TRADING_CACHE_DIR') or os.path.join(os.path.expanduser('~'), '.cache', 'quantbot', 'bars')
+        self._cache_dir = Path(cache_dir).expanduser().resolve()
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._in_memory_cache: dict = {}  # Cache key -> List[Bar]
         logger.info(f"DataCache initialized with cache directory: {self._cache_dir}")
@@ -311,9 +314,28 @@ class DataCache:
                     best_mtime = key_mtime
                     best_match = bars
         
-        # If we found a match in memory, return it immediately (no file I/O needed)
+        # If we found a match in memory, verify file hasn't changed
         if best_match is not None:
-            return best_match
+            cache_path = self.get_cache_path(symbol, timeframe)
+            if cache_path.exists():
+                try:
+                    current_mtime = cache_path.stat().st_mtime
+                    # Check if file was modified since cache was loaded
+                    # Find the cache key that matches this symbol/timeframe
+                    for key, bars in self._in_memory_cache.items():
+                        if key[0] == normalized_symbol and key[1] == normalized_timeframe:
+                            cached_mtime = key[2] if key[2] is not None else 0
+                            if current_mtime > cached_mtime:
+                                # File was updated - reload from file
+                                logger.debug(f"Cache file updated (mtime {current_mtime} > {cached_mtime}), reloading")
+                                best_match = None  # Force reload below
+                                break
+                except Exception:
+                    # If we can't check mtime, use cached version
+                    pass
+            
+            if best_match is not None:
+                return best_match
         
         # Not in memory - check file system and load if exists
         # This is the slow path - only happens on first request or after cache invalidation
@@ -477,18 +499,18 @@ class DataCache:
             df = df.set_index('timestamp').sort_index()
             
             # Write to temporary file first (atomic write)
-            temp_path = cache_path.with_suffix('.parquet.tmp')
+            tmp_path = cache_path.with_name(cache_path.name + f'.{uuid.uuid4().hex}.tmp')
             
             # Remove temp file if it exists from a previous failed write
-            if temp_path.exists():
+            if tmp_path.exists():
                 try:
-                    temp_path.unlink()
+                    tmp_path.unlink()
                 except Exception:
                     pass
             
             await asyncio.to_thread(
                 df.to_parquet,
-                temp_path,
+                tmp_path,
                 engine='pyarrow',
                 compression='snappy',
                 index=True,
@@ -533,7 +555,7 @@ class DataCache:
                                 break
                     
                     # Perform atomic rename
-                    temp_path.replace(cache_path)
+                    tmp_path.replace(cache_path)
                     rename_success = True
                     break
                     
@@ -566,9 +588,9 @@ class DataCache:
                             raise
             
             # Clean up temp file if rename succeeded
-            if rename_success and temp_path.exists():
+            if rename_success and tmp_path.exists():
                 try:
-                    temp_path.unlink()
+                    tmp_path.unlink()
                 except Exception:
                     pass
             
@@ -613,9 +635,9 @@ class DataCache:
             logger.error(f"Failed to save cache to {cache_path}: {e}")
             # Clean up temp file if it exists
             try:
-                temp_path = cache_path.with_suffix('.parquet.tmp')
-                if temp_path.exists():
-                    temp_path.unlink()
+                tmp_path = cache_path.with_name(cache_path.name + f'.{uuid.uuid4().hex}.tmp')
+                if tmp_path.exists():
+                    tmp_path.unlink()
             except Exception:
                 pass
     
@@ -823,25 +845,76 @@ class DataCache:
             normalized_end_check = self._normalize_timestamp_to_unit(end, unit_seconds)
             
             if normalized_cached_start <= normalized_start_check and normalized_cached_end >= normalized_end_check:
-                if overlapping:
-                    return CoverageResult(
-                        fully_covered=True,
-                        partial_covered=False,
-                        cached_start=cached_start,
-                        cached_end=cached_end,
-                        missing_ranges=[],
-                        overlapping_bars=overlapping,
-                    )
-                else:
-                    # Requested range is within cached range but no bars (weekend/holiday)
-                    return CoverageResult(
-                        fully_covered=True,
-                        partial_covered=False,
-                        cached_start=cached_start,
-                        cached_end=cached_end,
-                        missing_ranges=[],
-                        overlapping_bars=[],
-                    )
+                # For daily bars, verify all trading days are present before marking as fully covered
+                trading_days_missing = False
+                if unit_seconds == 86400 and get_trading_days:
+                    try:
+                        start_date = normalized_start_check.date()
+                        end_date = normalized_end_check.date()
+                        trading_days = get_trading_days(start_date, end_date)
+                        
+                        # Normalize trading days to Python date objects
+                        normalized_trading_days = []
+                        for td in trading_days:
+                            if hasattr(td, 'date') and callable(getattr(td, 'date', None)):
+                                normalized_trading_days.append(td.date())
+                            elif isinstance(td, date):
+                                normalized_trading_days.append(td)
+                            else:
+                                try:
+                                    normalized_trading_days.append(date.fromisoformat(str(td)))
+                                except (ValueError, AttributeError):
+                                    continue
+                        
+                        # Get dates from cached bars in requested range
+                        cached_dates = {
+                            self._normalize_timestamp_to_unit(b.timestamp, unit_seconds).date()
+                            for b in overlapping
+                        }
+                        
+                        # Check if all trading days are present
+                        missing_trading_days = set(normalized_trading_days) - cached_dates
+                        if missing_trading_days:
+                            # Not fully covered - missing trading days
+                            trading_days_missing = True
+                            # Fall through to detailed coverage check below
+                        else:
+                            # All trading days present - fully covered
+                            return CoverageResult(
+                                fully_covered=True,
+                                partial_covered=False,
+                                cached_start=cached_start,
+                                cached_end=cached_end,
+                                missing_ranges=[],
+                                overlapping_bars=overlapping,
+                            )
+                    except Exception as e:
+                        logger.debug(f"Failed to verify trading days coverage, falling back to simple check: {e}")
+                        # Fall through to simple check below
+                
+                # For non-daily bars or if trading day check failed, use simple check
+                # BUT skip if trading days are missing (for daily bars) - let it fall through to detailed check
+                if not trading_days_missing:
+                    if overlapping:
+                        return CoverageResult(
+                            fully_covered=True,
+                            partial_covered=False,
+                            cached_start=cached_start,
+                            cached_end=cached_end,
+                            missing_ranges=[],
+                            overlapping_bars=overlapping,
+                        )
+                    else:
+                        # Requested range is within cached range but no bars (weekend/holiday)
+                        return CoverageResult(
+                            fully_covered=True,
+                            partial_covered=False,
+                            cached_start=cached_start,
+                            cached_end=cached_end,
+                            missing_ranges=[],
+                            overlapping_bars=[],
+                        )
+                # If trading_days_missing is True, fall through to detailed coverage check below
         else:
             # For unknown timeframes, use exact timestamp comparison
             if cached_start <= start and cached_end >= end:

@@ -8,6 +8,7 @@ ma_short: 20
 ma_medium: 50
 ma_long: 200
 rsi_length: 14
+# min_bars_required: 200  # Optional: override calculated minimum (defaults to max of all indicator requirements)
 
 llm_model: "gpt-5-mini"
 llm_temperature: 0.0

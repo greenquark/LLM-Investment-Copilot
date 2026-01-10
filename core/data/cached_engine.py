@@ -15,6 +15,13 @@ from core.data.base import DataEngine
 from core.models.bar import Bar
 from core.models.option import OptionContract
 
+try:
+    from core.utils.timestamp import normalize_bar_range  # project import
+except Exception:  # pragma: no cover
+    try:
+        from timestamp import normalize_bar_range  # fallback for standalone tests
+    except Exception:
+        normalize_bar_range = None  # type: ignore
 logger = logging.getLogger(__name__)
 
 # Lazy import of DataCache to avoid dependency issues if pandas/pyarrow not installed
@@ -142,7 +149,7 @@ class CachedDataEngine(DataEngine):
                                     logger.warning(f"Could not normalize trading day: {d} (type: {type(d)})")
                                     continue
                         _trading_days_cache[cache_key] = normalized_dates
-                        logger.debug(f"[Cache] Retrieved {len(normalized_dates)} trading days for {start_date} to {end_date}")
+                        logger.debug(f"[Cache] Retrieved {len(normalized_dates)} trading days from {start_date} to {end_date}")
                     except Exception as e:
                         logger.warning(f"[Cache] Failed to get trading days for {start_date} to {end_date}: {e}, falling back to calendar days")
                         # Fallback to calendar days
@@ -190,7 +197,25 @@ class CachedDataEngine(DataEngine):
                     self._cache_hits += 1
                     self._total_bars_from_cache += len(filtered)
                     self._last_data_source = "Cache"  # Mark that this request was from cache
-                    # No logging when range is fully covered
+                    
+                    # Diagnostic logging for date gaps
+                    if filtered and timeframe.upper() in ("D", "1D"):
+                        filtered_dates = sorted(set(b.timestamp.date() for b in filtered))
+                        if get_trading_days:
+                            try:
+                                expected_dates = get_trading_days(start.date(), end.date())
+                                missing = set(expected_dates) - set(filtered_dates)
+                                if missing:
+                                    logger.warning(
+                                        f"[Cache] Coverage check says fully covered, but {len(missing)} trading days are missing: "
+                                        f"{sorted(missing)[:10]}{'...' if len(missing) > 10 else ''}. "
+                                        f"Cache has {len(all_cached_bars)} total bars, filtered to {len(filtered)} bars. "
+                                        f"Cache range: {min(b.timestamp.date() for b in all_cached_bars)} to {max(b.timestamp.date() for b in all_cached_bars)}"
+                                    )
+                            except Exception:
+                                pass  # Don't fail if trading days check fails
+                    
+                    # No logging when range is fully covered (unless diagnostic warning above)
                     return filtered
                 
                 # Partial coverage - we'll fetch missing ranges below
