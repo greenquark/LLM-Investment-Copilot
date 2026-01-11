@@ -111,22 +111,16 @@ class RegularDCA(Strategy):
     
     async def on_decision(self, ctx: Context, now: datetime) -> None:
         """Make trading decision - buy 100% of contribution."""
+        from core.strategy.strategy_utils import check_trading_day, get_end_time_for_timeframe
+        
         # Check if this is a trading day - skip weekends/holidays silently
         current_date = now.date()
-        try:
-            from core.data.trading_calendar import is_trading_day
-            if not is_trading_day(current_date):
-                # Not a trading day (weekend/holiday) - skip silently
-                return
-        except Exception:
-            # If trading calendar check fails, continue (fallback behavior)
-            pass
+        if not check_trading_day(current_date):
+            # Not a trading day (weekend/holiday) - skip silently
+            return
         
-        # For daily bars, request up to end of current day to ensure we get today's bar
-        if self.config.timeframe.upper() in ("D", "1D"):
-            end_time = datetime.combine(current_date, datetime.max.time())
-        else:
-            end_time = now
+        # Get appropriate end time for bar fetching
+        end_time = get_end_time_for_timeframe(now, current_date, self.config.timeframe)
         
         lookback_start = now - timedelta(days=self.config.lookback_days)
         bars = await self.data_engine.get_bars(

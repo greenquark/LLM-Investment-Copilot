@@ -41,40 +41,51 @@ from core.data.factory import create_data_engine_from_config
 from core.backtest.scheduler import DecisionScheduler
 from core.backtest.engine import BacktestEngine
 from core.backtest.benchmarks import run_buy_and_hold
+from core.backtest.backtest_utils import (
+    load_backtest_config,
+    get_backtest_timeframe,
+    parse_backtest_dates,
+    print_backtest_header,
+    create_scheduler_from_timeframe,
+)
 from core.strategy.leveraged_etf_vol_swing import LeveragedETFVolSwingStrategy, LeveragedETFVolSwingConfig
 from core.utils.logging import Logger
 from core.utils.config_loader import load_config_with_secrets
 from core.visualization import PlotlyChartVisualizer
 from core.visualization.chart_config import get_chart_config
+from typing import Optional
 
 
-async def main(use_local_chart: bool = False):
-    """Main backtest function."""
-    # Use absolute paths for config files
-    config_dir = project_root / "config"
-    env_file = config_dir / "env.backtest.yaml"
-    strategy_file = config_dir / "strategy.leveraged_etf_vol_swing.yaml"
+async def main(
+    use_local_chart: bool = False,
+    ticker: Optional[str] = None,
+    timeframe: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    days: Optional[int] = None,
+):
+    """Main backtest function.
     
-    if not env_file.exists():
-        raise FileNotFoundError(f"Config file not found: {env_file}")
-    if not strategy_file.exists():
-        raise FileNotFoundError(f"Strategy config file not found: {strategy_file}")
+    Args:
+        use_local_chart: Use local chart instead of web chart
+        ticker: Optional ticker symbol (overrides bull_etf_symbol in config)
+        timeframe: Optional timeframe (overrides config)
+        start_date: Optional start date in YYYY-MM-DD format (overrides config)
+        end_date: Optional end date in YYYY-MM-DD format (overrides config)
+        days: Optional number of calendar days for backtest period (e.g., 365 for one year)
+    """
+    # Load backtest configuration using shared utilities
+    env, strat_cfg_raw, bt_cfg = load_backtest_config(
+        project_root=project_root,
+        strategy_config_file="strategy.leveraged_etf_vol_swing.yaml",
+    )
     
-    # Load configs with secrets merged in
-    env = load_config_with_secrets(env_file)
-    strat_cfg_raw = load_config_with_secrets(strategy_file)
+    # Get timeframe with CLI priority
+    timeframe = get_backtest_timeframe(bt_cfg, strat_cfg_raw, default="1D", cli_timeframe=timeframe)
     
-    # Validate required config keys
-    if "backtest" not in env:
-        raise ValueError("Missing 'backtest' section in config")
-    
-    bt_cfg = env["backtest"]
-    
-    # Validate backtest config
-    required_bt_keys = ["start", "end", "initial_cash"]
-    for key in required_bt_keys:
-        if key not in bt_cfg:
-            raise ValueError(f"Missing 'backtest.{key}' in config")
+    # Override bull_etf_symbol if ticker is provided
+    if ticker:
+        strat_cfg_raw["bull_etf_symbol"] = ticker
     
     # Create data engine from config (supports multiple data sources)
     # This will use the 'data.historical_source' setting from config
@@ -82,16 +93,6 @@ async def main(use_local_chart: bool = False):
         env_config=env,
         use_for="historical",  # Use historical source for backtesting
     )
-    
-    # Create strategy config
-    # Timeframe can be set in env.backtest.yaml (takes precedence) or strategy config
-    timeframe = bt_cfg.get("timeframe") or strat_cfg_raw.get("timeframe", "1D")
-    
-    # Log which timeframe is being used and from where
-    if "timeframe" in bt_cfg:
-        print(f"Using timeframe '{timeframe}' from env.backtest.yaml")
-    else:
-        print(f"Using timeframe '{timeframe}' from strategy.leveraged_etf_vol_swing.yaml (env.backtest.yaml timeframe not set)")
     
     strategy_config = LeveragedETFVolSwingConfig(
         regime_symbol=strat_cfg_raw.get("regime_symbol", "SOXX"),
@@ -137,31 +138,21 @@ async def main(use_local_chart: bool = False):
     
     logger = Logger(prefix="[BACKTEST]")
     
-    # Calculate scheduler interval based on timeframe
-    # Strategy uses daily bars
-    timeframe_upper = timeframe.upper()
-    if timeframe_upper in ("1D", "D"):
-        scheduler = DecisionScheduler(interval_minutes=24 * 60)
-    else:
-        # Default to daily if not specified
-        scheduler = DecisionScheduler(interval_minutes=24 * 60)
-    
+    # Create scheduler from timeframe using shared utility
+    scheduler = create_scheduler_from_timeframe(timeframe)
     engine = BacktestEngine(data_engine, scheduler, logger)
     
-    start = datetime.fromisoformat(bt_cfg["start"])
-    end = datetime.fromisoformat(bt_cfg["end"])
-    initial_cash = bt_cfg["initial_cash"]
+    # Parse dates with CLI priority
+    start, end, initial_cash = parse_backtest_dates(bt_cfg, cli_start_date=start_date, cli_end_date=end_date, cli_days=days)
     
-    # Print backtest date range
-    print("\n" + "=" * 80)
-    print("BACKTEST DATE RANGE")
-    print("=" * 80)
-    print(f"Start Date: {start.date()}")
-    print(f"End Date:   {end.date()}")
-    print(f"Initial Cash: ${initial_cash:,.2f}")
-    print(f"Timeframe: {strategy_config.timeframe}")
-    print("=" * 80)
-    print()
+    # Print backtest header using shared utility
+    print_backtest_header(
+        symbol=strategy_config.bull_etf_symbol,
+        start=start,
+        end=end,
+        initial_cash=initial_cash,
+        timeframe=strategy_config.timeframe,
+    )
     
     logger.log(f"Starting Leveraged ETF Volatility Swing backtest from {start} to {end} with ${initial_cash:,.2f}")
     logger.log(f"Strategy config:")
@@ -415,7 +406,44 @@ if __name__ == "__main__":
         action="store_true",
         help="Use local Python chart instead of web chart",
     )
+    parser.add_argument(
+        "--ticker",
+        type=str,
+        default=None,
+        help="Bull ETF ticker symbol to use (overrides config files). Example: --ticker SOXL",
+    )
+    parser.add_argument(
+        "--timeframe",
+        type=str,
+        default=None,
+        help="Timeframe to use (overrides config files). Example: --timeframe 1D",
+    )
+    parser.add_argument(
+        "--start-date",
+        type=str,
+        default=None,
+        help="Start date for backtest (YYYY-MM-DD, overrides config). Example: --start-date 2024-01-01",
+    )
+    parser.add_argument(
+        "--end-date",
+        type=str,
+        default=None,
+        help="End date for backtest (YYYY-MM-DD, overrides config). Example: --end-date 2024-12-31",
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=None,
+        help="Number of calendar days for backtest period (e.g., 365 for one year). End date defaults to today if not specified. Example: --days 365",
+    )
     args = parser.parse_args()
     
-    asyncio.run(main(use_local_chart=args.local_chart))
+    asyncio.run(main(
+        use_local_chart=args.local_chart,
+        ticker=args.ticker,
+        timeframe=args.timeframe,
+        start_date=args.start_date,
+        end_date=args.end_date,
+        days=args.days,
+    ))
 

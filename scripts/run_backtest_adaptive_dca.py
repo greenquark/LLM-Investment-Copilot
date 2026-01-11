@@ -21,6 +21,13 @@ from core.data.factory import create_data_engine_from_config
 from core.data.trading_calendar import get_trading_calendar
 from core.backtest.scheduler import DecisionScheduler
 from core.backtest.engine import BacktestEngine
+from core.backtest.backtest_utils import (
+    load_backtest_config,
+    get_backtest_symbol,
+    get_backtest_timeframe,
+    parse_backtest_dates,
+    print_backtest_header,
+)
 from core.strategy.regular_dca_strategy import RegularDCA, RegularDCAConfig
 from core.backtest.performance import evaluate_performance_dca, calculate_dca_total_return
 from core.strategy.adaptive_dca import (
@@ -32,6 +39,7 @@ from core.utils.config_loader import load_config_with_secrets
 from core.utils.price_utils import get_final_price
 from core.visualization import PlotlyChartVisualizer
 from core.visualization.chart_config import get_chart_config
+from typing import Optional
 
 
 async def compare_adaptive_dca_vs_dca(
@@ -649,37 +657,39 @@ async def compare_adaptive_dca_vs_dca(
     return result, dca_result, strategy
 
 
-async def main(use_local_chart: bool = False):
-    """Main entry point for Adaptive DCA backtest."""
+async def main(
+    use_local_chart: bool = False,
+    ticker: Optional[str] = None,
+    timeframe: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    days: Optional[int] = None,
+):
+    """
+    Main entry point for Adaptive DCA backtest.
     
-    parser = argparse.ArgumentParser(description="Run Adaptive DCA backtest")
-    parser.add_argument("--config", type=str, help="Path to strategy config file")
-    parser.add_argument("--env", type=str, default="backtest", help="Environment config (backtest or live)")
-    args = parser.parse_args()
-    
-    # Load configuration
-    # Resolve paths relative to project root (parent of scripts directory)
+    Args:
+        use_local_chart: Use local chart instead of web chart
+        ticker: Optional ticker symbol (overrides config)
+        timeframe: Optional timeframe (overrides config)
+        start_date: Optional start date in YYYY-MM-DD format (overrides config)
+        end_date: Optional end date in YYYY-MM-DD format (overrides config)
+        days: Optional number of calendar days for backtest period (e.g., 365 for one year)
+    """
+    # Load configuration using shared utilities
     project_root = Path(__file__).parent.parent
-    if args.config:
-        config_path = Path(args.config)
-        if not config_path.is_absolute():
-            config_path = project_root / config_path
-    else:
-        config_path = project_root / "config" / "strategy.adaptive_dca.yaml"
+    env, strat_cfg_raw, bt_cfg = load_backtest_config(
+        project_root=project_root,
+        strategy_config_file="strategy.adaptive_dca.yaml",
+    )
     
-    env_config_path = project_root / "config" / f"env.{args.env}.yaml"
-    
-    strat_cfg_raw = load_config_with_secrets(config_path)
-    env_cfg = load_config_with_secrets(env_config_path)
-    bt_cfg = env_cfg.get("backtest", {})
-    
-    # Get symbol from backtest config (env.backtest.yaml)
-    symbol = bt_cfg.get("symbol")
-    if not symbol:
-        raise ValueError("Symbol must be specified in env.backtest.yaml under backtest.symbol")
+    # Get symbol and timeframe with CLI priority
+    symbol = get_backtest_symbol(bt_cfg, strat_cfg_raw, cli_symbol=ticker)
+    timeframe = get_backtest_timeframe(bt_cfg, strat_cfg_raw, default="1D", cli_timeframe=timeframe)
     
     # Create strategy config
     strategy_config = AdaptiveDCAConfig.from_dict(strat_cfg_raw)
+    strategy_config.timeframe = timeframe  # Override with resolved timeframe
     
     # Print FGI bands and associated actions
     print("\n" + "=" * 80)
@@ -696,30 +706,16 @@ async def main(use_local_chart: bool = False):
     print()
     
     # Create data engine
-    # Pass the entire env config (like controlled_panic_bear script does)
     data_engine = create_data_engine_from_config(
-        env_config=env_cfg,
+        env_config=env,
         use_for="historical",
     )
     
-    # Get timeframe from strategy config or env config
-    timeframe = strategy_config.timeframe or env_cfg.get("backtest", {}).get("timeframe", "1D")
+    # Parse dates with CLI priority
+    start, end, initial_cash = parse_backtest_dates(bt_cfg, cli_start_date=start_date, cli_end_date=end_date, cli_days=days)
     
-    # Parse backtest date range
-    start = datetime.fromisoformat(bt_cfg["start"])
-    end = datetime.fromisoformat(bt_cfg["end"])
-    initial_cash = bt_cfg["initial_cash"]
-    
-    # Print backtest date range
-    print("\n" + "=" * 80)
-    print("BACKTEST DATE RANGE")
-    print("=" * 80)
-    print(f"Start Date: {start.date()}")
-    print(f"End Date:   {end.date()}")
-    print(f"Initial Cash: ${initial_cash:,.2f}")
-    print(f"Timeframe: {timeframe}")
-    print("=" * 80)
-    print()
+    # Print backtest header using shared utility
+    print_backtest_header(symbol, start, end, initial_cash, timeframe)
     
     # Run comparison
     result, dca_result, strategy = await compare_adaptive_dca_vs_dca(
@@ -781,4 +777,49 @@ async def main(use_local_chart: bool = False):
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser(description="Run Adaptive DCA backtest")
+    parser.add_argument(
+        "--local-chart",
+        action="store_true",
+        help="Use local chart instead of web chart",
+    )
+    parser.add_argument(
+        "--ticker",
+        type=str,
+        default=None,
+        help="Ticker symbol to use (overrides config files). Example: --ticker TQQQ",
+    )
+    parser.add_argument(
+        "--timeframe",
+        type=str,
+        default=None,
+        help="Timeframe to use (overrides config files). Example: --timeframe 1D",
+    )
+    parser.add_argument(
+        "--start-date",
+        type=str,
+        default=None,
+        help="Start date for backtest (YYYY-MM-DD, overrides config). Example: --start-date 2024-01-01",
+    )
+    parser.add_argument(
+        "--end-date",
+        type=str,
+        default=None,
+        help="End date for backtest (YYYY-MM-DD, overrides config). Example: --end-date 2024-12-31",
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=None,
+        help="Number of calendar days for backtest period (e.g., 365 for one year). End date defaults to today if not specified. Example: --days 365",
+    )
+    args = parser.parse_args()
+    
+    asyncio.run(main(
+        use_local_chart=args.local_chart,
+        ticker=args.ticker,
+        timeframe=args.timeframe,
+        start_date=args.start_date,
+        end_date=args.end_date,
+        days=args.days,
+    ))

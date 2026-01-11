@@ -26,6 +26,9 @@ from core.models.bar import Bar
 # Import trading calendar functions from core.data (centralized export)
 from core.data import get_trading_days, is_trading_day
 
+# Import timestamp normalization utilities
+from core.utils.timestamp import normalize_timestamp_for_comparison
+
 logger = logging.getLogger(__name__)
 
 
@@ -668,16 +671,14 @@ class DataCache:
         # First, add all existing bars
         # Normalize timestamps to avoid timezone/microsecond issues
         for bar in existing:
-            # Normalize timestamp to seconds (remove microseconds) for comparison
-            normalized_ts = bar.timestamp.replace(microsecond=0)
+            normalized_ts = normalize_timestamp_for_comparison(bar.timestamp)
             key = (normalized_ts, bar.symbol, bar.timeframe)
             merged_dict[key] = bar
         
         # Then add new bars, but don't overwrite existing ones
         # Normalize timestamps to avoid timezone/microsecond issues
         for bar in new:
-            # Normalize timestamp to seconds (remove microseconds) for comparison
-            normalized_ts = bar.timestamp.replace(microsecond=0)
+            normalized_ts = normalize_timestamp_for_comparison(bar.timestamp)
             key = (normalized_ts, bar.symbol, bar.timeframe)
             if key not in merged_dict:
                 merged_dict[key] = bar

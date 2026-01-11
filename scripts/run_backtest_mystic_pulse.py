@@ -24,6 +24,14 @@ from core.data.factory import create_data_engine_from_config
 from core.backtest.scheduler import DecisionScheduler
 from core.backtest.engine import BacktestEngine
 from core.backtest.benchmarks import run_buy_and_hold
+from core.backtest.backtest_utils import (
+    load_backtest_config,
+    get_backtest_symbol,
+    get_backtest_timeframe,
+    parse_backtest_dates,
+    print_backtest_header,
+    create_scheduler_from_timeframe,
+)
 from core.strategy.mystic_pulse import MysticPulseStrategy, MysticPulseConfig
 from core.utils.logging import Logger
 from core.utils.config_loader import load_config_with_secrets
@@ -33,56 +41,36 @@ from core.visualization import (
     PlotlyChartVisualizer,
 )
 from core.visualization.chart_config import get_chart_config
+from typing import Optional
 
-async def main(use_local_chart: bool = False):
-    # Use absolute paths for config files
-    config_dir = project_root / "config"
-    env_file = config_dir / "env.backtest.yaml"
-    strategy_file = config_dir / "strategy.mystic_pulse.yaml"
+async def main(
+    use_local_chart: bool = False,
+    ticker: Optional[str] = None,
+    timeframe: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    days: Optional[int] = None,
+):
+    """
+    Main backtest function.
     
-    if not env_file.exists():
-        raise FileNotFoundError(f"Config file not found: {env_file}")
-    if not strategy_file.exists():
-        # Create default config if it doesn't exist
-        default_config = {
-            # Note: symbol is configured in env.backtest.yaml, not here
-            "adx_length": 9,
-            "smoothing_factor": 1,
-            "collect_length": 100,
-            "contrast_gamma_bars": 0.7,
-            "contrast_gamma_plots": 0.8,
-            "min_trend_score": 5,
-            "timeframe": "1D"  # Allowed: 15m, 30m, 1H, 2H, 4H, 1D
-        }
-        strategy_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(strategy_file, 'w') as f:
-            yaml.dump(default_config, f)
-        print(f"Created default config at {strategy_file}")
+    Args:
+        use_local_chart: Use local chart instead of web chart
+        ticker: Optional ticker symbol (overrides config)
+        timeframe: Optional timeframe (overrides config)
+        start_date: Optional start date in YYYY-MM-DD format (overrides config)
+        end_date: Optional end date in YYYY-MM-DD format (overrides config)
+        days: Optional number of calendar days for backtest period (e.g., 365 for one year)
+    """
+    # Load backtest configuration using shared utilities
+    env, strat_cfg_raw, bt_cfg = load_backtest_config(
+        project_root=project_root,
+        strategy_config_file="strategy.mystic_pulse.yaml",
+    )
     
-    # Load configs with secrets merged in
-    env = load_config_with_secrets(env_file)
-    strat_cfg_raw = load_config_with_secrets(strategy_file)
-    
-    # Validate required config keys
-    if "backtest" not in env:
-        raise ValueError("Missing 'backtest' section in config")
-    
-    bt_cfg = env["backtest"]
-    
-    # Get symbol from backtest config (env.backtest.yaml) - preferred location
-    # Fall back to strategy config if not found in backtest config
-    if "symbol" in bt_cfg:
-        symbol = bt_cfg["symbol"]
-    elif "symbol" in strat_cfg_raw:
-        symbol = strat_cfg_raw["symbol"]
-    else:
-        raise ValueError("Missing 'symbol' in backtest config (env.backtest.yaml). Symbol should be configured in env.backtest.yaml under backtest.symbol")
-    
-    # Validate backtest config
-    required_bt_keys = ["start", "end", "initial_cash"]
-    for key in required_bt_keys:
-        if key not in bt_cfg:
-            raise ValueError(f"Missing 'backtest.{key}' in config")
+    # Get symbol and timeframe with CLI priority
+    symbol = get_backtest_symbol(bt_cfg, strat_cfg_raw, cli_symbol=ticker)
+    timeframe = get_backtest_timeframe(bt_cfg, strat_cfg_raw, default="1D", cli_timeframe=timeframe)
     
     # Create data engine from config (supports multiple data sources)
     # This will use the 'data.historical_source' setting from config
@@ -90,16 +78,6 @@ async def main(use_local_chart: bool = False):
         env_config=env,
         use_for="historical",  # Use historical source for backtesting
     )
-    
-    # Create strategy config
-    # Timeframe can be set in env.backtest.yaml (takes precedence) or strategy.mystic_pulse.yaml
-    timeframe = bt_cfg.get("timeframe") or strat_cfg_raw.get("timeframe", "1D")
-    
-    # Log which timeframe is being used and from where
-    if "timeframe" in bt_cfg:
-        print(f"Using timeframe '{timeframe}' from env.backtest.yaml")
-    else:
-        print(f"Using timeframe '{timeframe}' from strategy.mystic_pulse.yaml (env.backtest.yaml timeframe not set)")
     
     strategy_config = MysticPulseConfig(
         adx_length=strat_cfg_raw.get("adx_length", 9),
@@ -116,46 +94,15 @@ async def main(use_local_chart: bool = False):
     
     logger = Logger(prefix="[BACKTEST]")
     
-    # Calculate scheduler interval based on timeframe
-    # Only allowed timeframes: 15m, 30m, 1H, 2H, 4H, 1D
-    timeframe_upper = timeframe.upper()
-    if timeframe_upper in ("1D", "D"):
-        # Daily: 1 day
-        scheduler = DecisionScheduler(interval_minutes=24 * 60)
-    elif timeframe_upper.endswith("H"):
-        # Hourly: parse number of hours (1H, 2H, 4H)
-        try:
-            hours = int(timeframe_upper[:-1]) if timeframe_upper != "H" else 1
-        except ValueError:
-            hours = 1
-        scheduler = DecisionScheduler(interval_minutes=hours * 60)
-    elif timeframe_upper.endswith("M") or timeframe_upper.endswith("m"):
-        # Minutely: parse number of minutes (15m, 30m)
-        try:
-            minutes = int(timeframe_upper[:-1])
-        except ValueError:
-            minutes = 15
-        scheduler = DecisionScheduler(interval_minutes=minutes)
-    else:
-        # Default to 15 minutes if parsing fails
-        scheduler = DecisionScheduler(interval_minutes=15)
-    
+    # Create scheduler from timeframe using shared utility
+    scheduler = create_scheduler_from_timeframe(timeframe)
     engine = BacktestEngine(data_engine, scheduler, logger)
     
-    start = datetime.fromisoformat(bt_cfg["start"])
-    end = datetime.fromisoformat(bt_cfg["end"])
-    initial_cash = bt_cfg["initial_cash"]
+    # Parse dates with CLI priority
+    start, end, initial_cash = parse_backtest_dates(bt_cfg, cli_start_date=start_date, cli_end_date=end_date, cli_days=days)
     
-    # Print backtest date range
-    print("\n" + "=" * 80)
-    print("BACKTEST DATE RANGE")
-    print("=" * 80)
-    print(f"Start Date: {start.date()}")
-    print(f"End Date:   {end.date()}")
-    print(f"Initial Cash: ${initial_cash:,.2f}")
-    print(f"Timeframe: {strategy_config.timeframe}")
-    print("=" * 80)
-    print()
+    # Print backtest header using shared utility
+    print_backtest_header(symbol, start, end, initial_cash, timeframe)
     
     logger.log(f"Starting Revised MP2.0 backtest for {symbol} from {start} to {end} with ${initial_cash:,.2f}")
     logger.log(f"Strategy config: ADX={strategy_config.adx_length}, Smoothing={strategy_config.smoothing_factor}, MinScore={strategy_config.min_trend_score}")
@@ -498,10 +445,47 @@ if __name__ == "__main__":
         choices=["moomoo", "tradingview", "dark", "light"],
         help="Chart theme for Plotly visualization (default: tradingview)"
     )
+    parser.add_argument(
+        "--ticker",
+        type=str,
+        default=None,
+        help="Ticker symbol to use (overrides config files). Example: --ticker TQQQ",
+    )
+    parser.add_argument(
+        "--timeframe",
+        type=str,
+        default=None,
+        help="Timeframe to use (overrides config files). Example: --timeframe 1D",
+    )
+    parser.add_argument(
+        "--start-date",
+        type=str,
+        default=None,
+        help="Start date for backtest (YYYY-MM-DD, overrides config). Example: --start-date 2024-01-01",
+    )
+    parser.add_argument(
+        "--end-date",
+        type=str,
+        default=None,
+        help="End date for backtest (YYYY-MM-DD, overrides config). Example: --end-date 2024-12-31",
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=None,
+        help="Number of calendar days for backtest period (e.g., 365 for one year). End date defaults to today if not specified. Example: --days 365",
+    )
     args = parser.parse_args()
     
     try:
-        asyncio.run(main(use_local_chart=args.local_chart))
+        asyncio.run(main(
+            use_local_chart=args.local_chart,
+            ticker=args.ticker,
+            timeframe=args.timeframe,
+            start_date=args.start_date,
+            end_date=args.end_date,
+            days=args.days,
+        ))
     except KeyboardInterrupt:
         print("\nBacktest interrupted. Exiting...")
         sys.exit(0)
