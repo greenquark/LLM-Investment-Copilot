@@ -357,6 +357,24 @@ async def run_backtest_llm_trend_detection(
     # Create data engine
     data_engine = create_data_engine_from_config(env_config=env, use_for="historical")
 
+    # Load centralized LLM config
+    llm_config = load_llm_config(project_root=project_root)
+    
+    # Use strategy-specific llm_model if provided, otherwise use primary_model from centralized config
+    llm_model = strat_cfg_raw.get("llm_model")
+    if not llm_model:
+        llm_model = llm_config.get("primary_model", "gpt-5-mini")
+    
+    # Use strategy-specific temperature if provided, otherwise use default from centralized config
+    llm_temperature = strat_cfg_raw.get("llm_temperature")
+    if llm_temperature is None:
+        llm_temperature = strat_cfg_raw.get("llm_temperature", llm_config.get("temperature", 0.0))
+    
+    # Use strategy-specific timeout if provided, otherwise use default from centralized config
+    llm_timeout = strat_cfg_raw.get("llm_timeout")
+    if llm_timeout is None:
+        llm_timeout = llm_config.get("timeout", 180.0)
+
     cfg = LLMTrendDetectionConfig(
         timeframe=strat_cfg_raw.get("timeframe", "1D"),
         lookback_bars=strat_cfg_raw.get("lookback_bars", 250),
@@ -365,16 +383,16 @@ async def run_backtest_llm_trend_detection(
         ma_medium=strat_cfg_raw.get("ma_medium", 50),
         ma_long=strat_cfg_raw.get("ma_long", 200),
         rsi_length=strat_cfg_raw.get("rsi_length", 14),
-        llm_model=strat_cfg_raw.get("llm_model", "gpt-5-mini"),
-        llm_temperature=strat_cfg_raw.get("llm_temperature", 0.0),
-        llm_timeout=strat_cfg_raw.get("llm_timeout", 180.0),
+        llm_model=llm_model,
+        llm_temperature=llm_temperature,
+        llm_timeout=llm_timeout,
         use_llm=strat_cfg_raw.get("use_llm", True),
         openai_api_key=strat_cfg_raw.get("openai_api_key"),  # Read from config
         enable_trading=strat_cfg_raw.get("enable_trading", True),  # Enable trading for performance testing
         capital_deployment_pct=strat_cfg_raw.get("capital_deployment_pct", 1.0),  # Deploy 100% of capital
     )
 
-    strategy = LLMTrendDetectionStrategy(symbol, cfg, data_engine)
+    strategy = LLMTrendDetectionStrategy(symbol, cfg, data_engine, project_root=project_root)
     logger = Logger(prefix="[LLM_Trend_Backtest]")
 
     # Create scheduler from timeframe using shared utility

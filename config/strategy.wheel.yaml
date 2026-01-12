@@ -1,4 +1,3 @@
-symbol: AAPL
 max_csp_contracts: 4
 max_cc_contracts: 4
 roll_dte_threshold: 5
