@@ -80,12 +80,15 @@ LOG_LEVEL=INFO
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-### 2.5 Deploy and Get Backend URL
+### 2.5 Expose Service and Get Backend URL
 
 1. Railway will automatically deploy when you push to GitHub
-2. Go to "Settings" → "Networking"
-3. Click "Generate Domain" to get your backend URL
-4. Copy the URL (e.g., `https://your-backend.railway.app`)
+2. **IMPORTANT**: The service starts as "Unexposed" - you need to expose it to get a public URL
+3. Go to "Settings" → "Networking"
+4. Under "Public Networking", click "Generate Domain" 
+   - This will expose your service and create a public URL
+   - Railway will automatically assign a domain (e.g., `https://your-backend.railway.app`)
+5. Copy the generated URL - you'll need this for the frontend configuration
 
 ### 2.6 Run Database Migrations
 
