@@ -199,17 +199,25 @@ npm run dev
 
 ### Backend Issues
 
-1. **Database Connection Errors**
+1. **"No start command found" Error**
+   - **Solution**: Go to Railway Settings → Deploy → Start Command
+   - Manually set: `alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port $PORT`
+   - Or use Docker: In Settings → Deploy → Builder, select "Dockerfile"
+   - Verify root directory is set to `ux_path_a/backend`
+   - Check that `railway.json` or `nixpacks.toml` exists in the backend directory
+   - Railway should auto-detect FastAPI, but you may need to set it manually
+
+2. **Database Connection Errors**
    - Verify `DATABASE_URL` is set correctly in Railway
    - Check Railway PostgreSQL service is running
    - Review migration logs in Railway
 
-2. **CORS Errors**
+3. **CORS Errors**
    - Verify `CORS_ORIGINS` includes your Vercel URL
    - Check frontend `NEXT_PUBLIC_API_URL` matches Railway URL
    - Ensure no trailing slashes in URLs
 
-3. **Port Issues**
+4. **Port Issues**
    - Railway sets `PORT` automatically - don't override it
    - Backend should listen on `0.0.0.0`, not `127.0.0.1`
 
