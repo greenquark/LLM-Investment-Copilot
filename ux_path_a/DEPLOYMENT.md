@@ -40,7 +40,9 @@ This guide will help you deploy the Investment Copilot application to Vercel (fr
 2. Go to "Settings" → "Root Directory"
 3. Set root directory to: `ux_path_a/backend`
 4. Go to "Settings" → "Deploy"
-5. Set start command to: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+5. **IMPORTANT**: Set start command to: `alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port $PORT`
+   - If Railway shows "No start command found", manually set it in Settings → Deploy → Start Command
+   - Railway should auto-detect FastAPI, but you can override it here
 
 ### 2.3 Add PostgreSQL Database
 
