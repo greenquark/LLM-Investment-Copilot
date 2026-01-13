@@ -9,7 +9,11 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from datetime import datetime
 
-from ux_path_a.backend.core.database import Base
+# Try absolute import first (for local development), fallback to relative (for deployment)
+try:
+    from ux_path_a.backend.core.database import Base
+except ImportError:
+    from core.database import Base
 
 
 class User(Base):

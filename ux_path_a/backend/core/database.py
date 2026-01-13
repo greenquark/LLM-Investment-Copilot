@@ -9,7 +9,11 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from typing import Generator
 
-from ux_path_a.backend.core.config import settings
+# Try absolute import first (for local development), fallback to relative (for deployment)
+try:
+    from ux_path_a.backend.core.config import settings
+except ImportError:
+    from core.config import settings
 
 # Create database engine
 engine = create_engine(
