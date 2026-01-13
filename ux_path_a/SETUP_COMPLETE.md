@@ -2,6 +2,7 @@
 
 ## Status
 
+LOCAL ENVIRONMENT
 All core components have been successfully implemented:
 
 ### ✅ Backend (FastAPI)
