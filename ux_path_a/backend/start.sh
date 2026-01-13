@@ -26,14 +26,24 @@ python -c "import main; print('✓ main module imported successfully')" || {
 # Create base tables first (if they don't exist)
 echo "Creating base database tables..." >&2
 python -c "
+import sys
+import traceback
 try:
-    from core.database import Base, engine
-except ImportError:
-    from ux_path_a.backend.core.database import Base, engine
-
-# Create all tables
-Base.metadata.create_all(bind=engine)
-print('✓ Base tables created/verified')
+    try:
+        from core.database import Base, engine
+        from core.models import User, ChatSession, ChatMessage, AuditLog, TokenBudget
+    except ImportError:
+        from ux_path_a.backend.core.database import Base, engine
+        from ux_path_a.backend.core.models import User, ChatSession, ChatMessage, AuditLog, TokenBudget
+    
+    # Create all tables
+    print('Creating tables from models...')
+    Base.metadata.create_all(bind=engine)
+    print('✓ Base tables created/verified')
+except Exception as e:
+    print(f'✗ Error creating tables: {e}')
+    traceback.print_exc()
+    sys.exit(1)
 " 2>&1 || {
     echo "WARNING: Failed to create base tables, but continuing..." >&2
 }
