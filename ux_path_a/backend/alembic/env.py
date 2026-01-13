@@ -7,8 +7,11 @@ from alembic import context
 import sys
 from pathlib import Path
 
-# Add backend directory to path (working directory is already /app which is backend root)
-backend_dir = Path(__file__).parent.parent  # /app (backend root)
+# Add backend directory to path
+# With Solution 2: working directory is /app/ux_path_a/backend
+# Path(__file__) = /app/ux_path_a/backend/alembic/env.py
+# parent.parent = /app/ux_path_a/backend (backend root)
+backend_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_dir))
 
 # Try absolute imports first (for local development), fallback to relative (for deployment)

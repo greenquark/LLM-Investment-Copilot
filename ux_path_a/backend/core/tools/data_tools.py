@@ -24,25 +24,31 @@ except ImportError:
     from core.tools.registry import Tool
 
 # Import from project root's core package (not backend's core module)
-# The project root is now first in sys.path, so 'core' should resolve to the project root's core package
+# With Solution 2 (repo root as Railway root), project root is in Docker image
+# So these imports should work directly
 try:
     from core.models.bar import Bar
+    from core.data.factory import create_data_engine_from_config
+    from core.utils.config_loader import load_config_with_secrets
 except ImportError as e:
-    # If that fails (e.g., backend's core.models.py shadows it), import directly from file
+    # Fallback for local development if project root not in path
+    # This should rarely be needed with Solution 2
     import importlib.util
     bar_path = project_root / "core" / "models" / "bar.py"
     if bar_path.exists():
-        # Import as a standalone module with a unique name to avoid conflicts
         spec = importlib.util.spec_from_file_location("_project_root_bar", str(bar_path))
         bar_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(bar_module)
         Bar = bar_module.Bar
     else:
         raise ImportError(f"Could not find Bar model at {bar_path}. Original error: {e}")
-
-# These should work since project root is in path
-from core.data.factory import create_data_engine_from_config
-from core.utils.config_loader import load_config_with_secrets
+    
+    # Try to import other modules
+    try:
+        from core.data.factory import create_data_engine_from_config
+        from core.utils.config_loader import load_config_with_secrets
+    except ImportError:
+        raise ImportError(f"Could not import core.data.factory or core.utils.config_loader. Error: {e}")
 
 logger = logging.getLogger(__name__)
 
