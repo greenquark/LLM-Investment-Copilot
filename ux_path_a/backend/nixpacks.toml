@@ -1,8 +1,0 @@
-[phases.setup]
-nixPkgs = ["python311", "pip"]
-
-[phases.install]
-cmds = ["pip install -r ux_path_a/backend/requirements.txt"]
-
-[start]
-cmd = "/app/ux_path_a/backend/start.sh"

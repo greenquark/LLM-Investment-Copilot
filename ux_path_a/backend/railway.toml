@@ -3,4 +3,5 @@ builder = "dockerfile"
 dockerfilePath = "ux_path_a/backend/Dockerfile"
 
 [deploy]
-startCommand = "/app/ux_path_a/backend/start.sh"
+# Start command is defined in Dockerfile CMD
+# No need to override here
