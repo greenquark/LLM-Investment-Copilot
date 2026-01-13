@@ -25,10 +25,11 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app:/app/ux_path_a/backend
 
 # Make start script executable (already copied by COPY . /app/)
-RUN chmod +x /app/ux_path_a/backend/start.sh
+# Verify the file exists and make it executable
+RUN ls -la /app/ux_path_a/backend/start.sh && chmod +x /app/ux_path_a/backend/start.sh
 
 # Expose port (Railway will set PORT env var)
 EXPOSE 8000
 
-# Run migrations and start server (from backend directory)
-CMD ["./start.sh"]
+# Run migrations and start server (use absolute path to be safe)
+CMD ["/app/ux_path_a/backend/start.sh"]
