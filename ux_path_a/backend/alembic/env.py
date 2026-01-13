@@ -7,13 +7,20 @@ from alembic import context
 import sys
 from pathlib import Path
 
-# Add parent directories to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+# Add backend directory to path (working directory is already /app which is backend root)
+backend_dir = Path(__file__).parent.parent  # /app (backend root)
+sys.path.insert(0, str(backend_dir))
 
-# Import models and config
-from ux_path_a.backend.core.database import Base
-from ux_path_a.backend.core.models import User, ChatSession, ChatMessage, AuditLog, TokenBudget
-from ux_path_a.backend.core.config import settings
+# Try absolute imports first (for local development), fallback to relative (for deployment)
+try:
+    from ux_path_a.backend.core.database import Base
+    from ux_path_a.backend.core.models import User, ChatSession, ChatMessage, AuditLog, TokenBudget
+    from ux_path_a.backend.core.config import settings
+except ImportError:
+    # Fallback for deployed environment (Railway) - use relative imports
+    from core.database import Base
+    from core.models import User, ChatSession, ChatMessage, AuditLog, TokenBudget
+    from core.config import settings
 
 # this is the Alembic Config object
 config = context.config

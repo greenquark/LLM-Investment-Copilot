@@ -39,7 +39,10 @@ logger = logging.getLogger(__name__)
 
 # Enable debug logging for specific modules if DEBUG is enabled
 if settings.DEBUG:
-    logging.getLogger("ux_path_a").setLevel(logging.DEBUG)
+    try:
+        logging.getLogger("ux_path_a").setLevel(logging.DEBUG)
+    except:
+        logging.getLogger("backend").setLevel(logging.DEBUG)
     logging.getLogger("uvicorn.access").setLevel(logging.DEBUG)
 
 # Create FastAPI app
@@ -196,7 +199,11 @@ async def global_exception_handler(request, exc):
 @app.on_event("startup")
 async def startup_event():
     """Initialize on startup."""
-    from ux_path_a.backend.core.database import Base, engine
+    try:
+        from ux_path_a.backend.core.database import Base, engine
+    except ImportError:
+        # Fallback for deployed environment (Railway)
+        from core.database import Base, engine
     
     # Create database tables
     Base.metadata.create_all(bind=engine)
