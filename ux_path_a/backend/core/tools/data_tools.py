@@ -21,11 +21,12 @@ sys.path.insert(0, str(project_root))
 try:
     from ux_path_a.backend.core.tools.registry import Tool
 except ImportError:
-    from core.tools.registry import Tool
+    # Use relative import for backend's registry
+    from ..registry import Tool
 
 # Import from project root's core package (not backend's core module)
 # With Solution 2 (repo root as Railway root), project root is in Docker image
-# So these imports should work directly
+# So these imports should work directly since /app is in PYTHONPATH
 try:
     from core.models.bar import Bar
     from core.data.factory import create_data_engine_from_config
