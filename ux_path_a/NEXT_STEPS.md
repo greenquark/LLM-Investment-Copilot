@@ -74,8 +74,10 @@ CORS_ORIGINS=https://your-vercel-app.vercel.app,http://localhost:3000
 
 **Service won't start?**
 - Check logs: Click "View logs" on deployment
+- Verify root directory is set to: `.` (repository root) in Settings → Root Directory
+- Verify Dockerfile path is: `ux_path_a/backend/Dockerfile` in Settings → Deploy
 - Verify start command is set: Settings → Deploy → Start Command
-- Should be: `alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port $PORT`
+- Should be: `./start.sh` (from `railway.toml`)
 
 **Can't access backend?**
 - Make sure service is exposed (see "Expose Your Service" above)
