@@ -1,5 +1,6 @@
 [build]
-builder = "nixpacks"
+builder = "dockerfile"
+dockerfilePath = "ux_path_a/backend/Dockerfile"
 
 [deploy]
 startCommand = "/app/ux_path_a/backend/start.sh"
