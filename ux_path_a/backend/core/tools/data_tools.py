@@ -11,8 +11,10 @@ import logging
 import sys
 from pathlib import Path
 
-# Add project root to path
+# Add project root to path BEFORE any imports to avoid conflicts
 project_root = Path(__file__).parent.parent.parent.parent.parent
+# Insert at the beginning to prioritize project root imports
+# This ensures project root's 'core' package is found before backend's 'core' module
 sys.path.insert(0, str(project_root))
 
 # Try absolute import first (for local development), fallback to relative (for deployment)
@@ -20,7 +22,25 @@ try:
     from ux_path_a.backend.core.tools.registry import Tool
 except ImportError:
     from core.tools.registry import Tool
-from core.models.bar import Bar
+
+# Import from project root's core package (not backend's core module)
+# The project root is now first in sys.path, so 'core' should resolve to the project root's core package
+try:
+    from core.models.bar import Bar
+except ImportError as e:
+    # If that fails (e.g., backend's core.models.py shadows it), import directly from file
+    import importlib.util
+    bar_path = project_root / "core" / "models" / "bar.py"
+    if bar_path.exists():
+        # Import as a standalone module with a unique name to avoid conflicts
+        spec = importlib.util.spec_from_file_location("_project_root_bar", str(bar_path))
+        bar_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bar_module)
+        Bar = bar_module.Bar
+    else:
+        raise ImportError(f"Could not find Bar model at {bar_path}. Original error: {e}")
+
+# These should work since project root is in path
 from core.data.factory import create_data_engine_from_config
 from core.utils.config_loader import load_config_with_secrets
 
