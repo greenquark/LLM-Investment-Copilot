@@ -23,6 +23,21 @@ python -c "import main; print('✓ main module imported successfully')" || {
     }
 }
 
+# Create base tables first (if they don't exist)
+echo "Creating base database tables..." >&2
+python -c "
+try:
+    from core.database import Base, engine
+except ImportError:
+    from ux_path_a.backend.core.database import Base, engine
+
+# Create all tables
+Base.metadata.create_all(bind=engine)
+print('✓ Base tables created/verified')
+" 2>&1 || {
+    echo "WARNING: Failed to create base tables, but continuing..." >&2
+}
+
 # Run database migrations (don't fail if migrations error)
 echo "Running database migrations..." >&2
 python -m alembic upgrade head 2>&1 || {
