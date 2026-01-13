@@ -24,9 +24,8 @@ COPY . /app/
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app:/app/ux_path_a/backend
 
-# Make start script executable
-COPY ux_path_a/backend/start.sh .
-RUN chmod +x start.sh
+# Make start script executable (already copied by COPY . /app/)
+RUN chmod +x /app/ux_path_a/backend/start.sh
 
 # Expose port (Railway will set PORT env var)
 EXPOSE 8000
