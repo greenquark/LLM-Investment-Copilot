@@ -26,11 +26,13 @@ Railway is detecting Python but not auto-detecting FastAPI. Here's how to fix it
 
 ### Option 3: Verify Root Directory
 
-Make sure Railway is looking in the right place:
+**IMPORTANT**: With Solution 2, Railway root directory must be the repository root:
 
 1. Go to **Settings** → **Root Directory**
-2. Set it to: `ux_path_a/backend`
-3. Save and redeploy
+2. Set it to: `.` (repository root, NOT `ux_path_a/backend`)
+3. This allows Dockerfile to access project root's `core/models/`, `core/data/`, etc.
+4. Set Dockerfile path to: `ux_path_a/backend/Dockerfile`
+5. Save and redeploy
 
 ## Why This Happens
 
@@ -38,6 +40,8 @@ Railway's Nixpacks auto-detection looks for:
 - `main.py` or `app.py` in the root
 - FastAPI imports in those files
 - Common FastAPI patterns
+
+**With Solution 2**: We use repository root (`.`) as Railway root directory so the Dockerfile can access the entire project, including project root's `core/models/`, `core/data/`, etc. This eliminates duplication and naming conflicts.
 
 If the root directory isn't set correctly, or if Nixpacks can't parse the file structure, it won't auto-detect.
 

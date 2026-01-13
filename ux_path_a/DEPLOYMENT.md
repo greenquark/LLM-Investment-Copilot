@@ -38,11 +38,14 @@ This guide will help you deploy the Investment Copilot application to Vercel (fr
 
 1. In Railway dashboard, click on your service
 2. Go to "Settings" → "Root Directory"
-3. Set root directory to: `ux_path_a/backend`
+3. **IMPORTANT**: Set root directory to: `.` (repository root)
+   - This allows the Dockerfile to access the entire repository, including project root's `core/models/`, `core/data/`, etc.
+   - This eliminates duplication and naming conflicts
 4. Go to "Settings" → "Deploy"
-5. **IMPORTANT**: Set start command to: `alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port $PORT`
-   - If Railway shows "No start command found", manually set it in Settings → Deploy → Start Command
-   - Railway should auto-detect FastAPI, but you can override it here
+5. **IMPORTANT**: Set Dockerfile path to: `ux_path_a/backend/Dockerfile`
+   - Or select "Dockerfile" as builder
+6. The start command should be: `./start.sh` (already configured in `railway.toml`)
+   - This runs migrations and starts the server
 
 ### 2.3 Add PostgreSQL Database
 
@@ -92,7 +95,8 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 
 ### 2.6 Run Database Migrations
 
-Railway will automatically run migrations on startup (configured in Dockerfile).
+Railway will automatically run migrations on startup (configured in `start.sh`).
+The Dockerfile copies the entire repository, so project root's `core/` directory is available.
 If you need to run manually:
 
 1. Go to Railway service → "Deployments"
@@ -204,11 +208,11 @@ npm run dev
 
 1. **"No start command found" Error**
    - **Solution**: Go to Railway Settings → Deploy → Start Command
-   - Manually set: `alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port $PORT`
+   - Set to: `./start.sh` (already in `railway.toml`)
    - Or use Docker: In Settings → Deploy → Builder, select "Dockerfile"
-   - Verify root directory is set to `ux_path_a/backend`
-   - Check that `railway.json` or `nixpacks.toml` exists in the backend directory
-   - Railway should auto-detect FastAPI, but you may need to set it manually
+   - **IMPORTANT**: Verify root directory is set to `.` (repository root), NOT `ux_path_a/backend`
+   - The Dockerfile expects repository root to access project root's `core/` directory
+   - Check that `railway.toml` exists in `ux_path_a/backend/` directory
 
 2. **Database Connection Errors**
    - Verify `DATABASE_URL` is set correctly in Railway

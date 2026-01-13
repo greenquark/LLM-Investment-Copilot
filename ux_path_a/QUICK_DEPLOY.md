@@ -17,7 +17,9 @@
 2. **Deploy Backend**
    - Click "New Project" → "Deploy from GitHub repo"
    - Select your repository
-   - Railway auto-detects `ux_path_a/backend`
+   - **IMPORTANT**: Go to Settings → Root Directory
+   - Set root directory to: `.` (repository root)
+   - This allows access to project root's `core/models/`, `core/data/`, etc.
 
 3. **Add PostgreSQL**
    - Click "New" → "Database" → "Add PostgreSQL"
@@ -33,7 +35,13 @@
    LOG_LEVEL=INFO
    ```
 
-5. **Get Backend URL**
+5. **Configure Dockerfile**
+   - Go to Settings → Deploy
+   - Set Dockerfile path to: `ux_path_a/backend/Dockerfile`
+   - Or select "Dockerfile" as builder
+   - Start command should be: `./start.sh` (from `railway.toml`)
+
+6. **Get Backend URL**
    - Settings → Networking → Generate Domain
    - Copy URL: `https://your-backend.railway.app`
 
