@@ -65,9 +65,10 @@ class ChatOrchestrator:
             from ux_path_a.backend.core.tools.analysis_tools import register_analysis_tools
             from ux_path_a.backend.core.tools.web_search_tools import register_web_search_tools
         except ImportError:
-            from core.tools.data_tools import register_data_tools
-            from core.tools.analysis_tools import register_analysis_tools
-            from core.tools.web_search_tools import register_web_search_tools
+            # Use relative imports for backend modules (since we're in ux_path_a/backend/core/)
+            from .tools.data_tools import register_data_tools
+            from .tools.analysis_tools import register_analysis_tools
+            from .tools.web_search_tools import register_web_search_tools
         
         # Register all tool categories
         register_data_tools(self.tool_registry)
