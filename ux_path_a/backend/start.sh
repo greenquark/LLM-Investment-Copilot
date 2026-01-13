@@ -25,28 +25,46 @@ python -c "import main; print('✓ main module imported successfully')" || {
 
 # Create base tables first (if they don't exist)
 echo "Creating base database tables..." >&2
-python -c "
+python << 'PYTHON_SCRIPT' 2>&1
 import sys
 import traceback
+
 try:
+    print("Attempting to import database modules...")
     try:
         from core.database import Base, engine
         from core.models import User, ChatSession, ChatMessage, AuditLog, TokenBudget
-    except ImportError:
-        from ux_path_a.backend.core.database import Base, engine
-        from ux_path_a.backend.core.models import User, ChatSession, ChatMessage, AuditLog, TokenBudget
+        print("✓ Imported using relative imports")
+    except ImportError as e1:
+        print(f"Relative import failed: {e1}")
+        try:
+            from ux_path_a.backend.core.database import Base, engine
+            from ux_path_a.backend.core.models import User, ChatSession, ChatMessage, AuditLog, TokenBudget
+            print("✓ Imported using absolute imports")
+        except ImportError as e2:
+            print(f"Absolute import also failed: {e2}")
+            raise
     
-    # Create all tables
-    print('Creating tables from models...')
+    # Mask password in database URL for logging
+    db_url_str = str(engine.url)
+    if '@' in db_url_str:
+        db_url_display = db_url_str.split('@')[-1]
+    else:
+        db_url_display = "local"
+    print(f"Database: {db_url_display}")
+    print("Creating tables from models...")
     Base.metadata.create_all(bind=engine)
-    print('✓ Base tables created/verified')
+    print("✓ Base tables created/verified")
+    
 except Exception as e:
-    print(f'✗ Error creating tables: {e}')
+    print(f"✗ ERROR creating tables: {e}")
     traceback.print_exc()
     sys.exit(1)
-" 2>&1 || {
+PYTHON_SCRIPT
+
+if [ $? -ne 0 ]; then
     echo "WARNING: Failed to create base tables, but continuing..." >&2
-}
+fi
 
 # Run database migrations (don't fail if migrations error)
 echo "Running database migrations..." >&2
