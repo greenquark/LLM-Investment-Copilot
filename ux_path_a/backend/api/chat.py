@@ -11,11 +11,19 @@ from datetime import datetime, timezone
 import uuid
 import logging
 
-from ux_path_a.backend.api.auth import get_current_user, TokenData
-from ux_path_a.backend.core.orchestrator import ChatOrchestrator
-from ux_path_a.backend.core.database import get_db
-from ux_path_a.backend.core.guardrails import TokenBudgetTracker, SafetyControls
-from ux_path_a.backend.core.models import ChatSession, ChatMessage as DBChatMessage, AuditLog
+# Try absolute import first (for local development), fallback to relative (for deployment)
+try:
+    from ux_path_a.backend.api.auth import get_current_user, TokenData
+    from ux_path_a.backend.core.orchestrator import ChatOrchestrator
+    from ux_path_a.backend.core.database import get_db
+    from ux_path_a.backend.core.guardrails import TokenBudgetTracker, SafetyControls
+    from ux_path_a.backend.core.models import ChatSession, ChatMessage as DBChatMessage, AuditLog
+except ImportError:
+    from api.auth import get_current_user, TokenData
+    from core.orchestrator import ChatOrchestrator
+    from core.database import get_db
+    from core.guardrails import TokenBudgetTracker, SafetyControls
+    from core.models import ChatSession, ChatMessage as DBChatMessage, AuditLog
 from sqlalchemy.orm import Session
 
 router = APIRouter()

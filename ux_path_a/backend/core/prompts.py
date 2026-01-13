@@ -4,7 +4,11 @@ System prompts for UX Path A LLM orchestration.
 Prompts enforce platform invariants and ensure proper tool usage.
 """
 
-from ux_path_a.backend.core.config import settings
+# Try absolute import first (for local development), fallback to relative (for deployment)
+try:
+    from ux_path_a.backend.core.config import settings
+except ImportError:
+    from core.config import settings
 
 
 def get_system_prompt(version: str = "1.0") -> str:

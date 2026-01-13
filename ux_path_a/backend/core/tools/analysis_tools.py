@@ -15,7 +15,11 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from ux_path_a.backend.core.tools.registry import Tool
+# Try absolute import first (for local development), fallback to relative (for deployment)
+try:
+    from ux_path_a.backend.core.tools.registry import Tool
+except ImportError:
+    from core.tools.registry import Tool
 from core.data.factory import create_data_engine_from_config
 from core.utils.config_loader import load_config_with_secrets
 from core.strategy.llm_trend_detection import LLMTrendDetectionStrategy, LLMTrendDetectionConfig

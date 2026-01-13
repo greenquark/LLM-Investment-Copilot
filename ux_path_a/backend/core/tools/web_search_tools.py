@@ -7,8 +7,13 @@ Allows the LLM to search the web for current news, market information, and other
 
 from typing import Dict, Any, List, Optional
 import logging
-from ux_path_a.backend.core.tools.registry import Tool
-from ux_path_a.backend.core.config import settings
+# Try absolute import first (for local development), fallback to relative (for deployment)
+try:
+    from ux_path_a.backend.core.tools.registry import Tool
+    from ux_path_a.backend.core.config import settings
+except ImportError:
+    from core.tools.registry import Tool
+    from core.config import settings
 
 logger = logging.getLogger(__name__)
 

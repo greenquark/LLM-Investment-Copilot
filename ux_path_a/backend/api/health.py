@@ -4,7 +4,11 @@ Health check endpoints.
 
 from fastapi import APIRouter
 from datetime import datetime
-from ux_path_a.backend.core.config import settings
+# Try absolute import first (for local development), fallback to relative (for deployment)
+try:
+    from ux_path_a.backend.core.config import settings
+except ImportError:
+    from core.config import settings
 import json
 import os
 
