@@ -86,6 +86,12 @@ def _discover_strategies(project_root: Optional[Path] = None) -> Tuple[Dict[str,
     
     logger.info(f"Strategy directory exists: {strategy_dir}")
     
+    # Ensure project root is in sys.path for imports
+    project_root_str = str(project_root)
+    if project_root_str not in sys.path:
+        sys.path.insert(0, project_root_str)
+        logger.info(f"Added {project_root_str} to sys.path")
+    
     strategies = {}
     configs = {}
     
@@ -98,6 +104,7 @@ def _discover_strategies(project_root: Optional[Path] = None) -> Tuple[Dict[str,
         "__pycache__",    # Python cache
         "old",            # Old strategies directory
         "__init__",       # Init file
+        "registry",       # Registry itself
     }
     
     for file in strategy_dir.glob("*.py"):
