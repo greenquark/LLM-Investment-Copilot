@@ -35,16 +35,31 @@ from core.utils.config_loader import load_config_with_secrets
 # Initialize logger first (needed for error messages)
 logger = logging.getLogger(__name__)
 
-# Test if we can import core.strategy.llm_trend_detection directly first
+# Test if we can import core package structure
 # This helps diagnose import issues
 try:
     import importlib
+    # Test importing core package
+    core_module = importlib.import_module("core")
+    logger.info(f"✓ Successfully imported core package: {core_module.__file__}")
+    # Test importing core.strategy package
+    strategy_module = importlib.import_module("core.strategy")
+    logger.info(f"✓ Successfully imported core.strategy package: {strategy_module.__file__}")
+    # Test importing the actual strategy module
     test_module = importlib.import_module("core.strategy.llm_trend_detection")
-    logger.info("✓ Successfully imported core.strategy.llm_trend_detection via importlib")
+    logger.info(f"✓ Successfully imported core.strategy.llm_trend_detection: {test_module.__file__}")
 except Exception as e:
     logger.error(f"✗ Failed to import core.strategy.llm_trend_detection via importlib: {e}", exc_info=True)
     logger.error(f"Python path: {sys.path}")
     logger.error(f"Project root: {project_root}")
+    # Try to see what Python can actually import
+    try:
+        import pkgutil
+        logger.error(f"Available modules in sys.path:")
+        for importer, modname, ispkg in pkgutil.iter_modules(sys.path):
+            logger.error(f"  - {modname} (package: {ispkg})")
+    except Exception:
+        pass
 
 # Use strategy registry for dynamic strategy discovery
 try:
