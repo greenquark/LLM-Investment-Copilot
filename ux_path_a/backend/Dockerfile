@@ -23,9 +23,9 @@ COPY . /app/
 # Verify critical files exist (helps debug import issues)
 RUN echo "=== Verifying critical files ===" && \
     ls -la /app/core/strategy/llm_trend_detection.py || echo "WARNING: core/strategy/llm_trend_detection.py not found!" && \
+    ls -la /app/core/strategy/registry.py || echo "WARNING: core/strategy/registry.py not found!" && \
     ls -la /app/core/models/bar.py || echo "WARNING: core/models/bar.py not found!" && \
     ls -la /app/core/data/factory.py || echo "WARNING: core/data/factory.py not found!" && \
-    ls -la /app/ux_path_a/backend/core/path_setup.py || echo "WARNING: path_setup.py not found!" && \
     echo "=== Verification complete ==="
 
 # Set environment variables

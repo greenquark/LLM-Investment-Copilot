@@ -12,7 +12,16 @@ import sys
 from pathlib import Path
 
 # Ensure project root is in path for importing project root's core package
-project_root = Path(__file__).parent.parent.parent.parent.parent
+project_root = Path(__file__).parent.parent.parent.parent.parent.resolve()
+
+# Verify project root exists and has core/strategy
+if not (project_root / 'core' / 'strategy').exists():
+    # Fallback: try /app (Railway/Docker)
+    if Path('/app').exists() and (Path('/app') / 'core' / 'strategy').exists():
+        project_root = Path('/app').resolve()
+    else:
+        raise ImportError(f"Cannot find project root. Tried: {project_root}, /app")
+
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
@@ -22,9 +31,32 @@ from ux_path_a.backend.backend_core.tools.registry import Tool
 # Import from project root's core package (no conflict now since backend uses backend_core)
 from core.data.factory import create_data_engine_from_config
 from core.utils.config_loader import load_config_with_secrets
-from core.strategy.llm_trend_detection import LLMTrendDetectionStrategy, LLMTrendDetectionConfig
 
+# Initialize logger first (needed for error messages)
 logger = logging.getLogger(__name__)
+
+# Use strategy registry for dynamic strategy discovery
+from core.strategy.registry import get_strategy_class, get_config_class
+
+# Get strategy classes dynamically
+LLMTrendDetectionStrategy = get_strategy_class("LLMTrendDetectionStrategy", project_root)
+LLMTrendDetectionConfig = get_config_class("LLMTrendDetectionConfig", project_root)
+
+# Fallback to direct import if registry fails (for backwards compatibility)
+if LLMTrendDetectionStrategy is None or LLMTrendDetectionConfig is None:
+    try:
+        from core.strategy.llm_trend_detection import (
+            LLMTrendDetectionStrategy,
+            LLMTrendDetectionConfig,
+        )
+        logger.info("Loaded LLMTrendDetectionStrategy via direct import (fallback)")
+    except ImportError as e:
+        logger.error(f"Failed to import LLMTrendDetectionStrategy: {e}")
+        logger.error(f"Project root: {project_root}")
+        logger.error(f"core/strategy exists: {(project_root / 'core' / 'strategy').exists()}")
+        raise
+else:
+    logger.debug("Loaded LLMTrendDetectionStrategy via strategy registry")
 
 
 class AnalyzeTrendTool(Tool):
