@@ -35,38 +35,63 @@ from core.utils.config_loader import load_config_with_secrets
 # Initialize logger first (needed for error messages)
 logger = logging.getLogger(__name__)
 
+# Test if we can import core.strategy.llm_trend_detection directly first
+# This helps diagnose import issues
+try:
+    import importlib
+    test_module = importlib.import_module("core.strategy.llm_trend_detection")
+    logger.info("✓ Successfully imported core.strategy.llm_trend_detection via importlib")
+except Exception as e:
+    logger.error(f"✗ Failed to import core.strategy.llm_trend_detection via importlib: {e}", exc_info=True)
+    logger.error(f"Python path: {sys.path}")
+    logger.error(f"Project root: {project_root}")
+
 # Use strategy registry for dynamic strategy discovery
 try:
     from core.strategy.registry import get_strategy_class, get_config_class
-    logger.info("Successfully imported strategy registry")
+    logger.info("✓ Successfully imported strategy registry")
 except ImportError as e:
-    logger.error(f"Failed to import strategy registry: {e}", exc_info=True)
-    raise
+    logger.error(f"✗ Failed to import strategy registry: {e}", exc_info=True)
+    logger.error(f"Python path: {sys.path}")
+    logger.error(f"Project root: {project_root}")
+    # Don't raise - fall through to direct import
 
 # Get strategy classes dynamically
-logger.info(f"Attempting to get LLMTrendDetectionStrategy from registry (project_root={project_root})")
-LLMTrendDetectionStrategy = get_strategy_class("LLMTrendDetectionStrategy", project_root)
-LLMTrendDetectionConfig = get_config_class("LLMTrendDetectionConfig", project_root)
+LLMTrendDetectionStrategy = None
+LLMTrendDetectionConfig = None
 
-logger.info(f"Registry returned - Strategy: {LLMTrendDetectionStrategy is not None}, Config: {LLMTrendDetectionConfig is not None}")
+try:
+    logger.info(f"Attempting to get LLMTrendDetectionStrategy from registry (project_root={project_root})")
+    LLMTrendDetectionStrategy = get_strategy_class("LLMTrendDetectionStrategy", project_root)
+    LLMTrendDetectionConfig = get_config_class("LLMTrendDetectionConfig", project_root)
+    logger.info(f"Registry returned - Strategy: {LLMTrendDetectionStrategy is not None}, Config: {LLMTrendDetectionConfig is not None}")
+except Exception as e:
+    logger.error(f"✗ Registry lookup failed: {e}", exc_info=True)
 
 # Fallback to direct import if registry fails (for backwards compatibility)
 if LLMTrendDetectionStrategy is None or LLMTrendDetectionConfig is None:
-    logger.warning("Registry returned None, falling back to direct import")
+    logger.warning("Registry returned None or failed, falling back to direct import")
     try:
         from core.strategy.llm_trend_detection import (
             LLMTrendDetectionStrategy,
             LLMTrendDetectionConfig,
         )
-        logger.info("Loaded LLMTrendDetectionStrategy via direct import (fallback)")
+        logger.info("✓ Loaded LLMTrendDetectionStrategy via direct import (fallback)")
     except ImportError as e:
-        logger.error(f"Failed to import LLMTrendDetectionStrategy: {e}", exc_info=True)
+        logger.error(f"✗ Failed to import LLMTrendDetectionStrategy: {e}", exc_info=True)
         logger.error(f"Project root: {project_root}")
+        logger.error(f"Python path: {sys.path}")
         logger.error(f"core/strategy exists: {(project_root / 'core' / 'strategy').exists()}")
         logger.error(f"core/strategy/llm_trend_detection.py exists: {(project_root / 'core' / 'strategy' / 'llm_trend_detection.py').exists()}")
+        # Try to list files in core/strategy
+        try:
+            strategy_files = list((project_root / 'core' / 'strategy').glob('*.py'))
+            logger.error(f"Files in core/strategy: {[f.name for f in strategy_files]}")
+        except Exception:
+            pass
         raise
 else:
-    logger.info("Loaded LLMTrendDetectionStrategy via strategy registry")
+    logger.info("✓ Loaded LLMTrendDetectionStrategy via strategy registry")
 
 
 class AnalyzeTrendTool(Tool):
