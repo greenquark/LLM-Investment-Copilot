@@ -36,14 +36,23 @@ from core.utils.config_loader import load_config_with_secrets
 logger = logging.getLogger(__name__)
 
 # Use strategy registry for dynamic strategy discovery
-from core.strategy.registry import get_strategy_class, get_config_class
+try:
+    from core.strategy.registry import get_strategy_class, get_config_class
+    logger.info("Successfully imported strategy registry")
+except ImportError as e:
+    logger.error(f"Failed to import strategy registry: {e}", exc_info=True)
+    raise
 
 # Get strategy classes dynamically
+logger.info(f"Attempting to get LLMTrendDetectionStrategy from registry (project_root={project_root})")
 LLMTrendDetectionStrategy = get_strategy_class("LLMTrendDetectionStrategy", project_root)
 LLMTrendDetectionConfig = get_config_class("LLMTrendDetectionConfig", project_root)
 
+logger.info(f"Registry returned - Strategy: {LLMTrendDetectionStrategy is not None}, Config: {LLMTrendDetectionConfig is not None}")
+
 # Fallback to direct import if registry fails (for backwards compatibility)
 if LLMTrendDetectionStrategy is None or LLMTrendDetectionConfig is None:
+    logger.warning("Registry returned None, falling back to direct import")
     try:
         from core.strategy.llm_trend_detection import (
             LLMTrendDetectionStrategy,
@@ -51,12 +60,13 @@ if LLMTrendDetectionStrategy is None or LLMTrendDetectionConfig is None:
         )
         logger.info("Loaded LLMTrendDetectionStrategy via direct import (fallback)")
     except ImportError as e:
-        logger.error(f"Failed to import LLMTrendDetectionStrategy: {e}")
+        logger.error(f"Failed to import LLMTrendDetectionStrategy: {e}", exc_info=True)
         logger.error(f"Project root: {project_root}")
         logger.error(f"core/strategy exists: {(project_root / 'core' / 'strategy').exists()}")
+        logger.error(f"core/strategy/llm_trend_detection.py exists: {(project_root / 'core' / 'strategy' / 'llm_trend_detection.py').exists()}")
         raise
 else:
-    logger.debug("Loaded LLMTrendDetectionStrategy via strategy registry")
+    logger.info("Loaded LLMTrendDetectionStrategy via strategy registry")
 
 
 class AnalyzeTrendTool(Tool):
