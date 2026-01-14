@@ -38,3 +38,7 @@ httpx==0.25.2
 
 # Note: Core platform modules are imported from parent directory
 # Make sure to add parent directory to PYTHONPATH
+
+pandas==2.2.2
+numpy==1.26.4
+yfinance==0.2.40

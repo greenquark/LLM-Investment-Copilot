@@ -6,14 +6,6 @@ It provides the chat orchestrator API that integrates with OpenAI
 and the Trading Copilot Platform tools.
 """
 
-"""
-UX Path A Backend - FastAPI Application
-
-This is the main entry point for the UX Path A backend server.
-It provides the chat orchestrator API that integrates with OpenAI
-and the Trading Copilot Platform tools.
-"""
-
 import logging
 import os
 from fastapi import FastAPI
@@ -54,7 +46,7 @@ app = FastAPI(
 @app.get("/test-route-early")
 async def test_route_early():
     """Simple test endpoint defined early."""
-    print("🔍 TEST ROUTE EARLY CALLED!")
+    logger.info("TEST ROUTE EARLY CALLED")
     return {"message": "Test route early works"}
 
 # Route to list all registered routes - defined early
@@ -94,7 +86,7 @@ async def log_requests(request, call_next):
     start_time = time.time()
     
     # Log request
-    logger.info(f"📥 {request.method} {request.url.path}")
+    logger.info("REQUEST %s %s", request.method, request.url.path)
     if settings.DEBUG:
         logger.debug(f"   Query params: {dict(request.query_params)}")
         # Log headers (but mask sensitive ones)
@@ -118,46 +110,14 @@ async def log_requests(request, call_next):
     
     # Log response
     process_time = time.time() - start_time
-    logger.info(f"📤 {request.method} {request.url.path} - {response.status_code} ({process_time:.3f}s)")
-    
+    logger.info("RESPONSE %s %s - %s (%.3fs)", request.method, request.url.path, response.status_code, process_time)
     return response
 
-# #region agent log
-# Verify middleware was registered
-import json
-try:
-    middleware_info = {
-        "has_middleware_stack": hasattr(app, "middleware_stack"),
-    }
-    if hasattr(app, "middleware_stack") and app.middleware_stack is not None:
-        try:
-            middleware_info["middleware_count"] = len(app.middleware_stack)
-        except (TypeError, AttributeError):
-            middleware_info["middleware_count"] = "unknown"
-    else:
-        middleware_info["middleware_count"] = 0
-    with open(r'c:\Users\JiantaoPan\OneDrive\Documents\Code\LLM-Investment-Copilot\.cursor\debug.log', 'a', encoding='utf-8') as f:
-        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"main.py:132","message":"middleware defined, checking app.middleware_stack","data":middleware_info,"timestamp":int(__import__('time').time()*1000)})+'\n')
-except Exception as e:
-    # Don't fail startup if logging fails
-    pass
-# #endregion
 
 # Include routers
-# #region agent log
-import json
-route_paths_before = [r.path for r in app.routes]
-with open(r'c:\Users\JiantaoPan\OneDrive\Documents\Code\LLM-Investment-Copilot\.cursor\debug.log', 'a', encoding='utf-8') as f:
-    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"main.py:96","message":"before include_router","data":{"routes_before":route_paths_before,"health_router_routes":[r.path for r in health.router.routes]},"timestamp":int(__import__('time').time()*1000)})+'\n')
-# #endregion
 
 app.include_router(health.router, prefix="/api/health", tags=["health"])
 
-# #region agent log
-route_paths_after = [r.path for r in app.routes]
-with open(r'c:\Users\JiantaoPan\OneDrive\Documents\Code\LLM-Investment-Copilot\.cursor\debug.log', 'a', encoding='utf-8') as f:
-    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"main.py:100","message":"after include_router health","data":{"routes_after":route_paths_after,"debug_route_exists":"/api/health/debug" in route_paths_after},"timestamp":int(__import__('time').time()*1000)})+'\n')
-# #endregion
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
@@ -166,7 +126,7 @@ app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 @app.get("/test-route")
 async def test_route():
     """Simple test endpoint."""
-    print("🔍 TEST ROUTE CALLED!")
+    logger.info("TEST ROUTE CALLED")
     return {"message": "Test route works", "routes": [r.path for r in app.routes if hasattr(r, 'path')]}
 
 # Route to list all registered routes (for debugging)
