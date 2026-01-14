@@ -37,29 +37,48 @@ logger = logging.getLogger(__name__)
 
 # Test if we can import core package structure
 # This helps diagnose import issues
+import importlib
+
+# Test importing core package
 try:
-    import importlib
-    # Test importing core package
     core_module = importlib.import_module("core")
     logger.info(f"✓ Successfully imported core package: {core_module.__file__}")
-    # Test importing core.strategy package
+except Exception as e:
+    logger.error(f"✗ Failed to import core package: {e}", exc_info=True)
+    raise
+
+# Test importing core.strategy package
+try:
     strategy_module = importlib.import_module("core.strategy")
     logger.info(f"✓ Successfully imported core.strategy package: {strategy_module.__file__}")
-    # Test importing the actual strategy module
+except Exception as e:
+    logger.error(f"✗ Failed to import core.strategy package: {e}", exc_info=True)
+    logger.error(f"Checking if core/strategy directory exists: {(project_root / 'core' / 'strategy').exists()}")
+    logger.error(f"Checking if core/strategy/__init__.py exists: {(project_root / 'core' / 'strategy' / '__init__.py').exists()}")
+    # List files in core/strategy
+    try:
+        strategy_files = list((project_root / 'core' / 'strategy').glob('*.py'))
+        logger.error(f"Files in core/strategy: {[f.name for f in strategy_files]}")
+    except Exception as list_err:
+        logger.error(f"Could not list files in core/strategy: {list_err}")
+    raise
+
+# Test importing the actual strategy module
+try:
     test_module = importlib.import_module("core.strategy.llm_trend_detection")
     logger.info(f"✓ Successfully imported core.strategy.llm_trend_detection: {test_module.__file__}")
 except Exception as e:
     logger.error(f"✗ Failed to import core.strategy.llm_trend_detection via importlib: {e}", exc_info=True)
     logger.error(f"Python path: {sys.path}")
     logger.error(f"Project root: {project_root}")
-    # Try to see what Python can actually import
+    logger.error(f"Checking if core/strategy/llm_trend_detection.py exists: {(project_root / 'core' / 'strategy' / 'llm_trend_detection.py').exists()}")
+    # List files in core/strategy
     try:
-        import pkgutil
-        logger.error(f"Available modules in sys.path:")
-        for importer, modname, ispkg in pkgutil.iter_modules(sys.path):
-            logger.error(f"  - {modname} (package: {ispkg})")
-    except Exception:
-        pass
+        strategy_files = list((project_root / 'core' / 'strategy').glob('*.py'))
+        logger.error(f"Files in core/strategy: {[f.name for f in strategy_files]}")
+    except Exception as list_err:
+        logger.error(f"Could not list files in core/strategy: {list_err}")
+    # Don't raise - continue to try registry and fallback
 
 # Use strategy registry for dynamic strategy discovery
 try:
