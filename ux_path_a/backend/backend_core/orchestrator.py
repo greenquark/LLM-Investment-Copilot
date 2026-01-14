@@ -12,15 +12,10 @@ import logging
 from openai import OpenAI
 from openai import APIError
 
-# Try absolute import first (for local development), fallback to relative (for deployment)
-try:
-    from ux_path_a.backend.core.config import settings
-    from ux_path_a.backend.core.tools.registry import ToolRegistry
-    from ux_path_a.backend.core.prompts import get_system_prompt
-except ImportError:
-    from core.config import settings
-    from core.tools.registry import ToolRegistry
-    from core.prompts import get_system_prompt
+# Use absolute imports (works in both local and Railway with PYTHONPATH=/app)
+from ux_path_a.backend.backend_core.config import settings
+from ux_path_a.backend.backend_core.tools.registry import ToolRegistry
+from ux_path_a.backend.backend_core.prompts import get_system_prompt
 
 # Try to import centralized LLM config utilities
 try:
@@ -60,15 +55,10 @@ class ChatOrchestrator:
     def _register_tools(self):
         """Register all available tools."""
         # Try absolute import first (for local development), fallback to relative (for deployment)
-        try:
-            from ux_path_a.backend.core.tools.data_tools import register_data_tools
-            from ux_path_a.backend.core.tools.analysis_tools import register_analysis_tools
-            from ux_path_a.backend.core.tools.web_search_tools import register_web_search_tools
-        except ImportError:
-            # Use relative imports for backend modules (since we're in ux_path_a/backend/core/)
-            from .tools.data_tools import register_data_tools
-            from .tools.analysis_tools import register_analysis_tools
-            from .tools.web_search_tools import register_web_search_tools
+        # Use absolute imports (works in both local and Railway with PYTHONPATH=/app)
+        from ux_path_a.backend.backend_core.tools.data_tools import register_data_tools
+        from ux_path_a.backend.backend_core.tools.analysis_tools import register_analysis_tools
+        from ux_path_a.backend.backend_core.tools.web_search_tools import register_web_search_tools
         
         # Register all tool categories
         register_data_tools(self.tool_registry)

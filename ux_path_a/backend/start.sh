@@ -31,19 +31,13 @@ import traceback
 
 try:
     print("Attempting to import database modules...")
-    try:
-        from core.database import Base, engine
-        from core.models import User, ChatSession, ChatMessage, AuditLog, TokenBudget
-        print("✓ Imported using relative imports")
-    except ImportError as e1:
-        print(f"Relative import failed: {e1}")
-        try:
-            from ux_path_a.backend.core.database import Base, engine
-            from ux_path_a.backend.core.models import User, ChatSession, ChatMessage, AuditLog, TokenBudget
-            print("✓ Imported using absolute imports")
-        except ImportError as e2:
-            print(f"Absolute import also failed: {e2}")
-            raise
+    # Use absolute imports (works in both local and Railway with PYTHONPATH=/app)
+    from ux_path_a.backend.backend_core.database import Base, engine
+    from ux_path_a.backend.backend_core.models import User, ChatSession, ChatMessage, AuditLog, TokenBudget
+    print("✓ Imported using absolute imports")
+except ImportError as e:
+    print(f"✗ Import failed: {e}")
+    raise
     
     # Mask password in database URL for logging
     db_url_str = str(engine.url)

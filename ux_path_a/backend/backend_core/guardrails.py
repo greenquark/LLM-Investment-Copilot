@@ -10,13 +10,9 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 import logging
 
-# Try absolute import first (for local development), fallback to relative (for deployment)
-try:
-    from ux_path_a.backend.core.models import TokenBudget, ChatSession
-    from ux_path_a.backend.core.config import settings
-except ImportError:
-    from core.models import TokenBudget, ChatSession
-    from core.config import settings
+# Use absolute imports (works in both local and Railway with PYTHONPATH=/app)
+from ux_path_a.backend.backend_core.models import TokenBudget, ChatSession
+from ux_path_a.backend.backend_core.config import settings
 
 logger = logging.getLogger(__name__)
 

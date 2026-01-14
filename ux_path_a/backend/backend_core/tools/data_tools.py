@@ -11,45 +11,18 @@ import logging
 import sys
 from pathlib import Path
 
-# Add project root to path BEFORE any imports to avoid conflicts
+# Ensure project root is in path for importing project root's core package
 project_root = Path(__file__).parent.parent.parent.parent.parent
-# Insert at the beginning to prioritize project root imports
-# This ensures project root's 'core' package is found before backend's 'core' module
-sys.path.insert(0, str(project_root))
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
-# Try absolute import first (for local development), fallback to relative (for deployment)
-try:
-    from ux_path_a.backend.core.tools.registry import Tool
-except ImportError:
-    # Use relative import for backend's registry
-    from ..registry import Tool
+# Use absolute imports (works in both local and Railway with PYTHONPATH=/app)
+from ux_path_a.backend.backend_core.tools.registry import Tool
 
-# Import from project root's core package (not backend's core module)
-# With Solution 2 (repo root as Railway root), project root is in Docker image
-# So these imports should work directly since /app is in PYTHONPATH
-try:
-    from core.models.bar import Bar
-    from core.data.factory import create_data_engine_from_config
-    from core.utils.config_loader import load_config_with_secrets
-except ImportError as e:
-    # Fallback for local development if project root not in path
-    # This should rarely be needed with Solution 2
-    import importlib.util
-    bar_path = project_root / "core" / "models" / "bar.py"
-    if bar_path.exists():
-        spec = importlib.util.spec_from_file_location("_project_root_bar", str(bar_path))
-        bar_module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(bar_module)
-        Bar = bar_module.Bar
-    else:
-        raise ImportError(f"Could not find Bar model at {bar_path}. Original error: {e}")
-    
-    # Try to import other modules
-    try:
-        from core.data.factory import create_data_engine_from_config
-        from core.utils.config_loader import load_config_with_secrets
-    except ImportError:
-        raise ImportError(f"Could not import core.data.factory or core.utils.config_loader. Error: {e}")
+# Import from project root's core package (no conflict now since backend uses backend_core)
+from core.models.bar import Bar
+from core.data.factory import create_data_engine_from_config
+from core.utils.config_loader import load_config_with_secrets
 
 logger = logging.getLogger(__name__)
 

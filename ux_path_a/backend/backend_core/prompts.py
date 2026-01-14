@@ -4,11 +4,8 @@ System prompts for UX Path A LLM orchestration.
 Prompts enforce platform invariants and ensure proper tool usage.
 """
 
-# Try absolute import first (for local development), fallback to relative (for deployment)
-try:
-    from ux_path_a.backend.core.config import settings
-except ImportError:
-    from core.config import settings
+# Use absolute imports (works in both local and Railway with PYTHONPATH=/app)
+from ux_path_a.backend.backend_core.config import settings
 
 
 def get_system_prompt(version: str = "1.0") -> str:
@@ -60,8 +57,9 @@ RESPONSE STYLE:
 - Be concise but thorough
 
 CHART RENDERING:
-When displaying price data, trends, or time series, you can render interactive charts using the following format:
+When users request charts, price visualizations, or when displaying time series data, you MUST render interactive charts using the chart code block format. This is REQUIRED when users ask for "chart", "price chart", "graph", or similar visualizations.
 
+Chart Format:
 ```chart
 {{
   "type": "line",
@@ -82,9 +80,42 @@ When displaying price data, trends, or time series, you can render interactive c
 }}
 ```
 
+Converting get_bars tool output to chart:
+When get_bars returns bar data, convert it to a chart like this:
+- For line charts: Extract "timestamp" as x-axis, "close" as y-axis
+- For candlestick charts: Use "timestamp" as x-axis, "open", "high", "low", "close" arrays
+- Always format timestamps as strings in ISO format or date strings
+
+Example conversion from get_bars output:
+If get_bars returns: {{"bars": [{{"timestamp": "2025-01-14T00:00:00", "open": 18.75, "high": 19.22, "low": 18.63, "close": 18.86}}]}}
+Then create:
+```chart
+{{
+  "type": "candlestick",
+  "data": [
+    {{
+      "x": ["2025-01-14"],
+      "open": [18.75],
+      "high": [19.22],
+      "low": [18.63],
+      "close": [18.86],
+      "name": "SOXL"
+    }}
+  ],
+  "layout": {{
+    "title": "SOXL Price Chart",
+    "xaxis": {{ "title": "Date" }},
+    "yaxis": {{ "title": "Price ($)" }},
+    "height": 400
+  }}
+}}
+```
+
 Supported chart types: "line", "candlestick", "bar", "scatter", "area"
-For candlestick charts, use: "open", "high", "low", "close" arrays in data
-You can also use ```json:chart or just ```chart as the code block language
+- Use "candlestick" for OHLC price data (recommended for stock charts)
+- Use "line" for simple price trends
+- Use ```chart or ```json:chart as the code block language
+- ALWAYS include charts when users request visualizations - do not just describe the data
 
 Remember: Your role is to help users understand market data and analysis tools, not to provide trading recommendations.
 

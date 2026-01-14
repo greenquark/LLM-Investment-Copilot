@@ -6,30 +6,28 @@ It provides the chat orchestrator API that integrates with OpenAI
 and the Trading Copilot Platform tools.
 """
 
+"""
+UX Path A Backend - FastAPI Application
+
+This is the main entry point for the UX Path A backend server.
+It provides the chat orchestrator API that integrates with OpenAI
+and the Trading Copilot Platform tools.
+"""
+
+import logging
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi import Request, status
 from fastapi.exceptions import RequestValidationError
-import logging
-from pathlib import Path
-import sys
 
-# Add parent directory to path to import core modules
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
+# Use absolute imports (works in both local and Railway with PYTHONPATH=/app)
+from ux_path_a.backend.api import chat, auth, health
+from ux_path_a.backend.backend_core.config import settings
 
-try:
-    from ux_path_a.backend.api import chat, auth, health
-    from ux_path_a.backend.core.config import settings
-except ImportError:
-    # For development, use relative imports
-    from api import chat, auth, health
-    from core.config import settings
-
-# Configure logging based on environment
-import os
-log_level = os.getenv("LOG_LEVEL", settings.LOG_LEVEL).upper()
+# Configure logging early
+log_level = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
     level=getattr(logging, log_level, logging.INFO),
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
@@ -199,11 +197,8 @@ async def global_exception_handler(request, exc):
 @app.on_event("startup")
 async def startup_event():
     """Initialize on startup."""
-    try:
-        from ux_path_a.backend.core.database import Base, engine
-    except ImportError:
-        # Fallback for deployed environment (Railway)
-        from core.database import Base, engine
+    # Use absolute imports (works in both local and Railway with PYTHONPATH=/app)
+    from ux_path_a.backend.backend_core.database import Base, engine
     
     # Create database tables
     Base.metadata.create_all(bind=engine)

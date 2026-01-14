@@ -4,11 +4,8 @@ Health check endpoints.
 
 from fastapi import APIRouter
 from datetime import datetime
-# Try absolute import first (for local development), fallback to relative (for deployment)
-try:
-    from ux_path_a.backend.core.config import settings
-except ImportError:
-    from core.config import settings
+# Use absolute imports (works in both local and Railway with PYTHONPATH=/app)
+from ux_path_a.backend.backend_core.config import settings
 import json
 import os
 

@@ -9,16 +9,17 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from datetime import datetime
 
-# Try absolute import first (for local development), fallback to relative (for deployment)
-try:
-    from ux_path_a.backend.core.database import Base
-except ImportError:
-    from core.database import Base
+# Use absolute imports (works in both local and Railway with PYTHONPATH=/app)
+from ux_path_a.backend.backend_core.database import Base
+
+# Get the actual module name to use in relationships
+_MODULE_NAME = __name__
 
 
 class User(Base):
     """User model for authentication."""
     __tablename__ = "users"
+    __table_args__ = {'extend_existing': True}
     
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
@@ -28,13 +29,14 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     is_active = Column(Boolean, default=True)
     
-    # Relationships
-    sessions = relationship("ChatSession", back_populates="user", cascade="all, delete-orphan")
+    # Relationships - will be set after all classes are defined
+    sessions = None  # type: ignore
 
 
 class ChatSession(Base):
     """Chat session model."""
     __tablename__ = "chat_sessions"
+    __table_args__ = {'extend_existing': True}
     
     id = Column(String, primary_key=True, index=True)  # UUID string
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
@@ -45,15 +47,16 @@ class ChatSession(Base):
     # Token usage tracking (INV-LLM-03)
     total_tokens_used = Column(Integer, default=0)
     
-    # Relationships
-    user = relationship("User", back_populates="sessions")
-    messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan", order_by="ChatMessage.created_at")
-    audit_logs = relationship("AuditLog", back_populates="session", cascade="all, delete-orphan")
+    # Relationships - will be set after all classes are defined
+    user = None  # type: ignore
+    messages = None  # type: ignore
+    audit_logs = None  # type: ignore
 
 
 class ChatMessage(Base):
     """Chat message model."""
     __tablename__ = "chat_messages"
+    __table_args__ = {'extend_existing': True}
     
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(String, ForeignKey("chat_sessions.id"), nullable=False, index=True)
@@ -65,8 +68,8 @@ class ChatMessage(Base):
     token_usage = Column(JSON, nullable=True)  # Store token usage stats
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
-    # Relationships
-    session = relationship("ChatSession", back_populates="messages")
+    # Relationships - will be set after all classes are defined
+    session = None  # type: ignore
 
 
 class AuditLog(Base):
@@ -76,6 +79,7 @@ class AuditLog(Base):
     Logs every interaction for reproducibility and compliance.
     """
     __tablename__ = "audit_logs"
+    __table_args__ = {'extend_existing': True}
     
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(String, ForeignKey("chat_sessions.id"), nullable=False, index=True)
@@ -102,14 +106,15 @@ class AuditLog(Base):
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
-    # Relationships
-    session = relationship("ChatSession", back_populates="audit_logs")
-    user = relationship("User")
+    # Relationships - will be set after all classes are defined
+    session = None  # type: ignore
+    user = None  # type: ignore
 
 
 class TokenBudget(Base):
     """Token budget tracking per session (INV-LLM-03)."""
     __tablename__ = "token_budgets"
+    __table_args__ = {'extend_existing': True}
     
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(String, ForeignKey("chat_sessions.id"), nullable=False, unique=True, index=True)
@@ -117,3 +122,13 @@ class TokenBudget(Base):
     tokens_used = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+# Set up relationships after all classes are defined to avoid circular imports
+# Using backref instead of back_populates to avoid string resolution issues
+# Using direct column references (ChatMessage.created_at) instead of strings for order_by
+# All imports use absolute paths (ux_path_a.backend.backend_core.*) to ensure single module registration
+User.sessions = relationship(ChatSession, backref="user", cascade="all, delete-orphan")
+ChatSession.messages = relationship(ChatMessage, backref="session", cascade="all, delete-orphan", order_by=ChatMessage.created_at)
+ChatSession.audit_logs = relationship(AuditLog, backref="session", cascade="all, delete-orphan")
+AuditLog.user = relationship(User, backref="audit_logs")

@@ -7,13 +7,9 @@ Allows the LLM to search the web for current news, market information, and other
 
 from typing import Dict, Any, List, Optional
 import logging
-# Try absolute import first (for local development), fallback to relative (for deployment)
-try:
-    from ux_path_a.backend.core.tools.registry import Tool
-    from ux_path_a.backend.core.config import settings
-except ImportError:
-    from core.tools.registry import Tool
-    from core.config import settings
+# Use absolute imports (works in both local and Railway with PYTHONPATH=/app)
+from ux_path_a.backend.backend_core.tools.registry import Tool
+from ux_path_a.backend.backend_core.config import settings
 
 logger = logging.getLogger(__name__)
 

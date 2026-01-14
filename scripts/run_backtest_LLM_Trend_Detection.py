@@ -19,6 +19,7 @@ from core.backtest.benchmarks import run_buy_and_hold
 from core.backtest.performance import evaluate_performance
 from core.utils.logging import Logger
 from core.utils.config_loader import load_config_with_secrets
+from core.utils.llm_config import load_llm_config
 from core.visualization import (
     LocalChartVisualizer,
     PlotlyChartVisualizer,

@@ -14,16 +14,10 @@ from pathlib import Path
 backend_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_dir))
 
-# Try absolute imports first (for local development), fallback to relative (for deployment)
-try:
-    from ux_path_a.backend.core.database import Base
-    from ux_path_a.backend.core.models import User, ChatSession, ChatMessage, AuditLog, TokenBudget
-    from ux_path_a.backend.core.config import settings
-except ImportError:
-    # Fallback for deployed environment (Railway) - use relative imports
-    from core.database import Base
-    from core.models import User, ChatSession, ChatMessage, AuditLog, TokenBudget
-    from core.config import settings
+# Use absolute imports (works in both local and Railway with PYTHONPATH=/app)
+from ux_path_a.backend.backend_core.database import Base
+from ux_path_a.backend.backend_core.models import User, ChatSession, ChatMessage, AuditLog, TokenBudget
+from ux_path_a.backend.backend_core.config import settings
 
 # this is the Alembic Config object
 config = context.config

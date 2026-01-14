@@ -11,35 +11,18 @@ import logging
 import sys
 from pathlib import Path
 
-# Add project root to path BEFORE any imports to avoid conflicts
-# Calculate project root: from ux_path_a/backend/core/tools/analysis_tools.py -> project root
+# Ensure project root is in path for importing project root's core package
 project_root = Path(__file__).parent.parent.parent.parent.parent
-# Insert at the beginning to prioritize project root imports
-# This ensures project root's 'core' package is found before backend's 'core' module
-sys.path.insert(0, str(project_root))
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
-# Try absolute import first (for local development), fallback to relative (for deployment)
-try:
-    from ux_path_a.backend.core.tools.registry import Tool
-except ImportError:
-    # Use relative import for backend's registry
-    from ..registry import Tool
+# Use absolute imports (works in both local and Railway with PYTHONPATH=/app)
+from ux_path_a.backend.backend_core.tools.registry import Tool
 
-# Import from project root's core package (not backend's core module)
-# With Solution 2 (repo root as Railway root), project root is in Docker image
-# So these imports should work directly since /app is in PYTHONPATH
-try:
-    from core.data.factory import create_data_engine_from_config
-    from core.utils.config_loader import load_config_with_secrets
-    from core.strategy.llm_trend_detection import LLMTrendDetectionStrategy, LLMTrendDetectionConfig
-except ImportError as e:
-    # If imports fail, log the error for debugging
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.error(f"Failed to import from project root's core package: {e}")
-    logger.error(f"Project root: {project_root}")
-    logger.error(f"Python path: {sys.path}")
-    raise
+# Import from project root's core package (no conflict now since backend uses backend_core)
+from core.data.factory import create_data_engine_from_config
+from core.utils.config_loader import load_config_with_secrets
+from core.strategy.llm_trend_detection import LLMTrendDetectionStrategy, LLMTrendDetectionConfig
 
 logger = logging.getLogger(__name__)
 

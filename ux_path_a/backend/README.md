@@ -37,13 +37,31 @@ FastAPI backend for the Smart Trading Copilot web chat application.
    ```
 
 4. **Run the server:**
-   ```bash
-   # Option 1: Using uvicorn directly (recommended for development)
-   uvicorn main:app --reload --host 0.0.0.0 --port 8000
    
-   # Option 2: Using Python (uses config settings)
-   python main.py
+   **Windows (PowerShell):**
+   ```powershell
+   .\run_local.ps1
    ```
+   
+   **Linux/Mac:**
+   ```bash
+   chmod +x run_local.sh
+   ./run_local.sh
+   ```
+   
+   **Manual (if scripts don't work):**
+   ```bash
+   # From project root (not from backend directory):
+   cd ../..  # Go to project root
+   export PYTHONPATH=$PWD:$PYTHONPATH  # Linux/Mac
+   # OR
+   $env:PYTHONPATH = "$PWD;$env:PYTHONPATH"  # Windows PowerShell
+   
+   cd ux_path_a/backend
+   uvicorn main:app --reload --host 0.0.0.0 --port 8000
+   ```
+   
+   **Note:** Absolute imports require the project root in PYTHONPATH. The scripts above handle this automatically.
 
 Server will run on `http://localhost:8000` (or `http://127.0.0.1:8000`)
 
