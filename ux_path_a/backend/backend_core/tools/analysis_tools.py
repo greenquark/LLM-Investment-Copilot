@@ -57,13 +57,28 @@ except Exception as e:
     logger.error(f"Checking if core/strategy/__init__.py exists: {(project_root / 'core' / 'strategy' / '__init__.py').exists()}")
     # List files in core/strategy
     try:
-        strategy_files = list((project_root / 'core' / 'strategy').glob('*.py'))
-        logger.error(f"Files in core/strategy: {[f.name for f in strategy_files]}")
+        strategy_dir = project_root / 'core' / 'strategy'
+        if strategy_dir.exists():
+            strategy_files = list(strategy_dir.glob('*.py'))
+            logger.error(f"Files in core/strategy: {[f.name for f in strategy_files]}")
+            logger.error(f"llm_trend_detection.py exists: {(strategy_dir / 'llm_trend_detection.py').exists()}")
+            if (strategy_dir / 'llm_trend_detection.py').exists():
+                logger.error(f"llm_trend_detection.py size: {(strategy_dir / 'llm_trend_detection.py').stat().st_size} bytes")
+        else:
+            logger.error(f"core/strategy directory does not exist!")
     except Exception as list_err:
-        logger.error(f"Could not list files in core/strategy: {list_err}")
+        logger.error(f"Could not list files in core/strategy: {list_err}", exc_info=True)
     raise
 
 # Test importing the actual strategy module
+llm_trend_file = project_root / 'core' / 'strategy' / 'llm_trend_detection.py'
+logger.info(f"Checking llm_trend_detection.py file: exists={llm_trend_file.exists()}, path={llm_trend_file}")
+if llm_trend_file.exists():
+    try:
+        logger.info(f"File size: {llm_trend_file.stat().st_size} bytes")
+    except Exception:
+        pass
+
 try:
     test_module = importlib.import_module("core.strategy.llm_trend_detection")
     logger.info(f"✓ Successfully imported core.strategy.llm_trend_detection: {test_module.__file__}")
@@ -71,13 +86,17 @@ except Exception as e:
     logger.error(f"✗ Failed to import core.strategy.llm_trend_detection via importlib: {e}", exc_info=True)
     logger.error(f"Python path: {sys.path}")
     logger.error(f"Project root: {project_root}")
-    logger.error(f"Checking if core/strategy/llm_trend_detection.py exists: {(project_root / 'core' / 'strategy' / 'llm_trend_detection.py').exists()}")
+    logger.error(f"Checking if core/strategy/llm_trend_detection.py exists: {llm_trend_file.exists()}")
     # List files in core/strategy
     try:
-        strategy_files = list((project_root / 'core' / 'strategy').glob('*.py'))
-        logger.error(f"Files in core/strategy: {[f.name for f in strategy_files]}")
+        strategy_dir = project_root / 'core' / 'strategy'
+        if strategy_dir.exists():
+            strategy_files = list(strategy_dir.glob('*.py'))
+            logger.error(f"Files in core/strategy: {[f.name for f in strategy_files]}")
+        else:
+            logger.error(f"core/strategy directory does not exist!")
     except Exception as list_err:
-        logger.error(f"Could not list files in core/strategy: {list_err}")
+        logger.error(f"Could not list files in core/strategy: {list_err}", exc_info=True)
     # Don't raise - continue to try registry and fallback
 
 # Use strategy registry for dynamic strategy discovery
