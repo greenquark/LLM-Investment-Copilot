@@ -68,17 +68,15 @@ class ApiClient {
     // Ensure endpoint starts with /
     const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`
     const url = `${this.baseUrl}${normalizedEndpoint}`
-    const headers: HeadersInit = {
-      ...options.headers,
-    }
+    const headers = new Headers(options.headers)
 
     // Only set default Content-Type if not already specified
-    if (!headers['Content-Type'] && !headers['content-type']) {
-      headers['Content-Type'] = 'application/json'
+    if (!headers.has('Content-Type')) {
+      headers.set('Content-Type', 'application/json')
     }
 
     if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`
+      headers.set('Authorization', `Bearer ${this.token}`)
     }
 
     // DEBUG: Check if debug logging is enabled
@@ -90,7 +88,9 @@ class ApiClient {
     if (isDebug) {
       console.group(`🔵 API Request: ${options.method || 'GET'} ${normalizedEndpoint}`)
       console.log('URL:', url)
-      console.log('Headers:', { ...headers, Authorization: headers['Authorization'] ? 'Bearer ***' : undefined })
+      const headersObj = Object.fromEntries(headers.entries())
+      if (headersObj.Authorization) headersObj.Authorization = 'Bearer ***'
+      console.log('Headers:', headersObj)
       if (options.body) {
         try {
           const bodyObj = typeof options.body === 'string' ? JSON.parse(options.body) : options.body
