@@ -35,12 +35,18 @@ ENV/
 # Data cache
 data_cache/
 
-# Strategy implementation files (exclude from git)
-# Keep base.py and __init__.py, but ignore actual strategy implementations
+# Strategy implementation files
+# NOTE: Strategy modules are part of the deployed backend and must be tracked.
+# If you have local-only experiments, put them under a separate ignored directory
+# (e.g. `core/strategy/local/`) rather than ignoring real modules.
+#
+# Local-only strategy experiments (keep out of deploys)
 core/strategy/leveraged_etf_vol_swing.py
-core/strategy/llm_trend_detection.py
 core/strategy/mystic_pulse.py
 core/strategy/wheel.py
+
+# Local databases
+*.db
 
 # Logs
 *.log

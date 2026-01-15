@@ -14,7 +14,16 @@ import logging
 from core.data.base import DataEngine
 from core.models.bar import Bar
 from core.models.option import OptionContract
+from core.utils.timestamp import normalize_timestamp_for_comparison
+from core.utils.error_handling import is_api_error, format_api_error_message
 
+try:
+    from core.utils.timestamp import normalize_bar_range  # project import
+except Exception:  # pragma: no cover
+    try:
+        from timestamp import normalize_bar_range  # fallback for standalone tests
+    except Exception:
+        normalize_bar_range = None  # type: ignore
 logger = logging.getLogger(__name__)
 
 # Lazy import of DataCache to avoid dependency issues if pandas/pyarrow not installed
@@ -142,7 +151,7 @@ class CachedDataEngine(DataEngine):
                                     logger.warning(f"Could not normalize trading day: {d} (type: {type(d)})")
                                     continue
                         _trading_days_cache[cache_key] = normalized_dates
-                        logger.debug(f"[Cache] Retrieved {len(normalized_dates)} trading days for {start_date} to {end_date}")
+                        logger.debug(f"[Cache] Retrieved {len(normalized_dates)} trading days from {start_date} to {end_date}")
                     except Exception as e:
                         logger.warning(f"[Cache] Failed to get trading days for {start_date} to {end_date}: {e}, falling back to calendar days")
                         # Fallback to calendar days
@@ -186,16 +195,65 @@ class CachedDataEngine(DataEngine):
                 
                 if coverage.fully_covered:
                     # Filter to requested range and return
-                    filtered = [b for b in all_cached_bars if start <= b.timestamp <= end]
+                    # Use normalized timestamp comparison (same as check_coverage) for consistency
+                    # This ensures we get the same bars that check_coverage identifies as overlapping
+                    unit_seconds = self._cache._get_time_unit_seconds(timeframe)
+                    if unit_seconds:
+                        # Normalize timestamps to unit boundaries (same as check_coverage)
+                        normalized_start = self._cache._normalize_timestamp_to_unit(start, unit_seconds)
+                        normalized_end = self._cache._normalize_timestamp_to_unit(end, unit_seconds)
+                        filtered = [
+                            b for b in all_cached_bars
+                            if normalized_start <= self._cache._normalize_timestamp_to_unit(b.timestamp, unit_seconds) <= normalized_end
+                        ]
+                    else:
+                        # For unknown timeframes, use exact timestamp comparison
+                        filtered = [b for b in all_cached_bars if start <= b.timestamp <= end]
                     self._cache_hits += 1
                     self._total_bars_from_cache += len(filtered)
                     self._last_data_source = "Cache"  # Mark that this request was from cache
-                    # No logging when range is fully covered
+                    
+                    # Diagnostic logging for date gaps
+                    if filtered and timeframe.upper() in ("D", "1D"):
+                        filtered_dates = sorted(set(b.timestamp.date() for b in filtered))
+                        if get_trading_days:
+                            try:
+                                expected_dates = get_trading_days(start.date(), end.date())
+                                missing = set(expected_dates) - set(filtered_dates)
+                                if missing:
+                                    logger.warning(
+                                        f"[Cache] Coverage check says fully covered, but {len(missing)} trading days are missing: "
+                                        f"{sorted(missing)[:10]}{'...' if len(missing) > 10 else ''}. "
+                                        f"Cache has {len(all_cached_bars)} total bars, filtered to {len(filtered)} bars. "
+                                        f"Cache range: {min(b.timestamp.date() for b in all_cached_bars)} to {max(b.timestamp.date() for b in all_cached_bars)}"
+                                    )
+                            except Exception:
+                                pass  # Don't fail if trading days check fails
+                    
+                    # No logging when range is fully covered (unless diagnostic warning above)
                     return filtered
                 
                 # Partial coverage - we'll fetch missing ranges below
                 # Get filtered bars for the overlapping portion
-                cached_bars = [b for b in all_cached_bars if start <= b.timestamp <= end]
+                # Use normalized timestamp comparison (same as check_coverage) for consistency
+                # This ensures we get the same bars that check_coverage identifies as overlapping
+                unit_seconds = self._cache._get_time_unit_seconds(timeframe)
+                if unit_seconds:
+                    # Normalize timestamps to unit boundaries (same as check_coverage)
+                    normalized_start = self._cache._normalize_timestamp_to_unit(start, unit_seconds)
+                    normalized_end = self._cache._normalize_timestamp_to_unit(end, unit_seconds)
+                    cached_bars = [
+                        b for b in all_cached_bars
+                        if normalized_start <= self._cache._normalize_timestamp_to_unit(b.timestamp, unit_seconds) <= normalized_end
+                    ]
+                else:
+                    # For unknown timeframes, use exact timestamp comparison
+                    cached_bars = [b for b in all_cached_bars if start <= b.timestamp <= end]
+                # #region agent log
+                with open(r'c:\Users\JiantaoPan\OneDrive\Documents\Code\LLM-Investment-Copilot\.cursor\debug.log', 'a') as f:
+                    import json
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"cached_engine.py:223","message":"cached_bars filtered","data":{"all_cached_bars_count":len(all_cached_bars) if all_cached_bars else 0,"cached_bars_count":len(cached_bars),"start":str(start),"end":str(end),"cached_bars_dates":[str(b.timestamp.date()) for b in cached_bars[:5]]},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                # #endregion
         
         # Determine what needs to be fetched from base engine
         missing_ranges: List[tuple[datetime, datetime]] = []
@@ -206,6 +264,11 @@ class CachedDataEngine(DataEngine):
             # Pass timeframe so check_coverage knows if it's daily
             coverage = self._cache.check_coverage(all_cached_bars, start, end, timeframe=timeframe)
             missing_ranges = coverage.missing_ranges
+            # #region agent log
+            with open(r'c:\Users\JiantaoPan\OneDrive\Documents\Code\LLM-Investment-Copilot\.cursor\debug.log', 'a') as f:
+                import json
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"cached_engine.py:232","message":"coverage check result","data":{"overlapping_bars_count":len(coverage.overlapping_bars) if coverage.overlapping_bars else 0,"cached_bars_count":len(cached_bars) if 'cached_bars' in locals() else 0,"missing_ranges_count":len(missing_ranges)},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+            # #endregion
             
             # Log cache state for debugging
             cached_dates = sorted(set(b.timestamp.date() for b in all_cached_bars))
@@ -329,6 +392,36 @@ class CachedDataEngine(DataEngine):
                         f"(will fetch from API): {[str(d) for d in missing_trading_days[:5]]} ... "
                         f"{[str(d) for d in missing_trading_days[-5:]]}"
                     )
+            
+            # If check_coverage returned empty missing_ranges but we detected missing dates,
+            # create missing ranges from the missing dates (for daily bars)
+            # This handles cases where check_coverage's normalized comparison doesn't catch all missing dates
+            if not missing_ranges and missing_dates and (timeframe.upper().endswith("D") or timeframe.upper() == "D"):
+                # Create individual date ranges for each missing date
+                # Use normalized timestamps for consistency with check_coverage
+                unit_seconds = self._cache._get_time_unit_seconds(timeframe)
+                for missing_date in missing_dates:
+                    # Create datetime range for the missing date (full day)
+                    # For daily bars, use the full day range (00:00:00 to 23:59:59.999999)
+                    # This ensures we capture the bar regardless of its timestamp
+                    day_start = datetime.combine(missing_date, datetime.min.time())
+                    day_end = datetime.combine(missing_date, datetime.max.time())
+                    # Normalize to unit boundaries for consistency with check_coverage
+                    if unit_seconds:
+                        day_start = self._cache._normalize_timestamp_to_unit(day_start, unit_seconds)
+                        # For daily bars, ensure day_end covers the full day
+                        if unit_seconds == 86400:
+                            # For daily bars, use max time to ensure we get the bar
+                            day_end = datetime.combine(missing_date, datetime.max.time())
+                        else:
+                            day_end = self._cache._normalize_timestamp_to_unit(day_end, unit_seconds)
+                    missing_ranges.append((day_start, day_end))
+                    # #region agent log
+                    with open(r'c:\Users\JiantaoPan\OneDrive\Documents\Code\LLM-Investment-Copilot\.cursor\debug.log', 'a') as f:
+                        import json
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"cached_engine.py:399","message":"created missing range from missing date","data":{"missing_date":str(missing_date),"day_start":str(day_start),"day_end":str(day_end),"request_start":str(start),"request_end":str(end)},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                    # #endregion
+                logger.info(f"[Cache] Created {len(missing_ranges)} missing range(s) from {len(missing_dates)} missing date(s)")
             
             # Only count as partial hit if we actually have overlapping bars
             # A partial hit means: we had SOME cached data that overlapped with the request
@@ -509,14 +602,12 @@ class CachedDataEngine(DataEngine):
                         batch_bars = await self._base_engine.get_bars(symbol, range_start, range_end, timeframe)
                     except Exception as e:
                         # API error occurred - do NOT mark as 'no data', re-raise the error
-                        error_str = str(e).lower()
-                        if any(keyword in error_str for keyword in ['rate limit', '429', 'too many requests', 'limit exceeded', 'quota', '403', '401', 'payment required', '402', 'timeout']):
-                            logger.error(f"[{self._last_data_source}] API error for batch fetch {start_date} to {end_date}: {e}")
-                            raise  # Re-raise API errors (rate limits, timeouts, etc.)
-                        else:
-                            # For other errors, also re-raise
-                            logger.error(f"[{self._last_data_source}] Error fetching batch {start_date} to {end_date}: {e}")
-                            raise
+                        logger.error(format_api_error_message(
+                            self._last_data_source,
+                            additional_info=f"batch fetch {start_date} to {end_date}",
+                            error=e
+                        ))
+                        raise  # Re-raise all errors
                     
                     if batch_bars:
                         # Batch fetch succeeded - check if we got all expected trading days
@@ -546,6 +637,11 @@ class CachedDataEngine(DataEngine):
                         missing_dates = expected_dates - received_dates
                         
                         api_bars.extend(batch_bars)
+                        # #region agent log
+                        with open(r'c:\Users\JiantaoPan\OneDrive\Documents\Code\LLM-Investment-Copilot\.cursor\debug.log', 'a') as f:
+                            import json
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"cached_engine.py:583","message":"api_bars extended with batch_bars","data":{"api_bars_count":len(api_bars),"batch_bars_count":len(batch_bars),"batch_bars_dates":[str(b.timestamp.date()) for b in batch_bars[:5]]},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                        # #endregion
                         self._total_bars_from_api += len(batch_bars)
                         timestamps = [b.timestamp.strftime('%Y-%m-%d %H:%M:%S') for b in batch_bars]
                         logger.info(
@@ -569,6 +665,11 @@ class CachedDataEngine(DataEngine):
                                 logger.debug(f"[{self._last_data_source}] Fetching missing trading day: {trading_day.isoformat()}")
                                 try:
                                     bars = await self._base_engine.get_bars(symbol, day_start, day_end, timeframe)
+                                    # #region agent log
+                                    with open(r'c:\Users\JiantaoPan\OneDrive\Documents\Code\LLM-Investment-Copilot\.cursor\debug.log', 'a') as f:
+                                        import json
+                                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"cached_engine.py:654","message":"fetched bars for missing trading day","data":{"trading_day":str(trading_day),"day_start":str(day_start),"day_end":str(day_end),"bars_count":len(bars) if bars else 0,"bar_timestamps":[str(b.timestamp) for b in bars[:3]] if bars else []},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                                    # #endregion
                                     api_bars.extend(bars)
                                     if bars:
                                         self._total_bars_from_api += len(bars)
@@ -614,14 +715,12 @@ class CachedDataEngine(DataEngine):
                                             raise RuntimeError(error_msg)
                                 except Exception as e:
                                     # API error occurred - do NOT mark as 'no data', re-raise the error
-                                    error_str = str(e).lower()
-                                    if any(keyword in error_str for keyword in ['rate limit', '429', 'too many requests', 'limit exceeded', 'quota', '403', '401', 'payment required', '402', 'timeout']):
-                                        logger.error(f"[{self._last_data_source}] API error for {trading_day.isoformat()}: {e}")
-                                        raise  # Re-raise API errors (rate limits, timeouts, etc.)
-                                    else:
-                                        # For other errors, also re-raise
-                                        logger.error(f"[{self._last_data_source}] Error fetching {trading_day.isoformat()}: {e}")
-                                        raise
+                                    logger.error(format_api_error_message(
+                                        self._last_data_source,
+                                        date=trading_day.isoformat(),
+                                        error=e
+                                    ))
+                                    raise  # Re-raise all errors
                     else:
                         # Batch fetch returned no data - try individual days
                         logger.info(
@@ -676,14 +775,12 @@ class CachedDataEngine(DataEngine):
                                         raise RuntimeError(error_msg)
                             except Exception as e:
                                 # API error occurred - do NOT mark as 'no data', re-raise the error
-                                error_str = str(e).lower()
-                                if any(keyword in error_str for keyword in ['rate limit', '429', 'too many requests', 'limit exceeded', 'quota', '403', '401', 'payment required', '402', 'timeout']):
-                                    logger.error(f"[{self._last_data_source}] API error for {trading_day.isoformat()}: {e}")
-                                    raise  # Re-raise API errors (rate limits, timeouts, etc.)
-                                else:
-                                    # For other errors, also re-raise
-                                    logger.error(f"[{self._last_data_source}] Error fetching {trading_day.isoformat()}: {e}")
-                                    raise
+                                logger.error(format_api_error_message(
+                                    self._last_data_source,
+                                    date=trading_day.isoformat(),
+                                    error=e
+                                ))
+                                raise  # Re-raise all errors
                 else:
                     # Single day: fetch directly
                     trading_day = trading_days_in_range[0]
@@ -736,14 +833,12 @@ class CachedDataEngine(DataEngine):
                                 raise RuntimeError(error_msg)
                     except Exception as e:
                         # API error occurred - do NOT mark as 'no data', re-raise the error
-                        error_str = str(e).lower()
-                        if any(keyword in error_str for keyword in ['rate limit', '429', 'too many requests', 'limit exceeded', 'quota', '403', '401', 'payment required', '402', 'timeout']):
-                            logger.error(f"[{self._last_data_source}] API error for {trading_day.isoformat()}: {e}")
-                            raise  # Re-raise API errors (rate limits, timeouts, etc.)
-                        else:
-                            # For other errors, also re-raise
-                            logger.error(f"[{self._last_data_source}] Error fetching {trading_day.isoformat()}: {e}")
-                            raise
+                        logger.error(format_api_error_message(
+                            self._last_data_source,
+                            date=trading_day.isoformat(),
+                            error=e
+                        ))
+                        raise  # Re-raise all errors
             else:
                 # For non-daily bars or if trading calendar not available, use the range as-is
                 self._base_engine_calls += 1
@@ -801,38 +896,57 @@ class CachedDataEngine(DataEngine):
                             raise RuntimeError(error_msg)
                 except Exception as e:
                     # API error occurred - do NOT mark as 'no data', re-raise the error
-                    error_str = str(e).lower()
-                    if any(keyword in error_str for keyword in ['rate limit', '429', 'too many requests', 'limit exceeded', 'quota', '403', '401', 'payment required', '402', 'timeout']):
-                        logger.error(f"[{self._last_data_source}] API error for range {range_start} to {range_end}: {e}")
-                        raise  # Re-raise API errors (rate limits, timeouts, etc.)
-                    else:
-                        # For other errors, also re-raise
-                        logger.error(f"[{self._last_data_source}] Error fetching range {range_start} to {range_end}: {e}")
-                        raise
+                    logger.error(format_api_error_message(
+                        self._last_data_source,
+                        additional_info=f"range {range_start} to {range_end}",
+                        error=e
+                    ))
+                    raise  # Re-raise all errors
         
         # Filter out bars that already exist in cache before merging
         # This prevents duplicate warnings and unnecessary save attempts
         if all_cached_bars and api_bars:
-            cached_timestamps = {(b.timestamp.replace(microsecond=0), b.symbol, b.timeframe) for b in all_cached_bars}
+            from core.utils.timestamp import normalize_timestamp_for_comparison
+            cached_timestamps = {(normalize_timestamp_for_comparison(b.timestamp), b.symbol, b.timeframe) for b in all_cached_bars}
+            # #region agent log
+            with open(r'c:\Users\JiantaoPan\OneDrive\Documents\Code\LLM-Investment-Copilot\.cursor\debug.log', 'a') as f:
+                import json
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"cached_engine.py:841","message":"before filtering api_bars","data":{"api_bars_count":len(api_bars),"cached_timestamps_count":len(cached_timestamps),"api_bars_dates":[str(b.timestamp.date()) for b in api_bars[:5]]},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+            # #endregion
             new_api_bars = [
                 b for b in api_bars
-                if (b.timestamp.replace(microsecond=0), b.symbol, b.timeframe) not in cached_timestamps
+                if (normalize_timestamp_for_comparison(b.timestamp), b.symbol, b.timeframe) not in cached_timestamps
             ]
             if len(new_api_bars) < len(api_bars):
                 filtered_count = len(api_bars) - len(new_api_bars)
                 filtered_timestamps = [
                     b.timestamp for b in api_bars
-                    if (b.timestamp.replace(microsecond=0), b.symbol, b.timeframe) in cached_timestamps
+                    if (normalize_timestamp_for_comparison(b.timestamp), b.symbol, b.timeframe) in cached_timestamps
                 ]
                 logger.debug(
                     f"Filtered out {filtered_count} duplicate bars from {self._get_data_source_name()} response. "
                     f"Filtered timestamps: {[str(ts) for ts in filtered_timestamps[:3]]}"
                 )
+                # #region agent log
+                with open(r'c:\Users\JiantaoPan\OneDrive\Documents\Code\LLM-Investment-Copilot\.cursor\debug.log', 'a') as f:
+                    import json
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"cached_engine.py:856","message":"after filtering api_bars","data":{"filtered_count":filtered_count,"new_api_bars_count":len(new_api_bars),"filtered_timestamps":[str(ts) for ts in filtered_timestamps]},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+                # #endregion
             api_bars = new_api_bars
         
         # Merge cached and base engine data
         if cached_bars:
+            # #region agent log
+            with open(r'c:\Users\JiantaoPan\OneDrive\Documents\Code\LLM-Investment-Copilot\.cursor\debug.log', 'a') as f:
+                import json
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"cached_engine.py:859","message":"before merge","data":{"cached_bars_count":len(cached_bars),"api_bars_count":len(api_bars) if api_bars else 0},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+            # #endregion
             all_bars = self._cache._merge_and_deduplicate(cached_bars, api_bars)
+            # #region agent log
+            with open(r'c:\Users\JiantaoPan\OneDrive\Documents\Code\LLM-Investment-Copilot\.cursor\debug.log', 'a') as f:
+                import json
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"cached_engine.py:860","message":"after merge","data":{"all_bars_count":len(all_bars) if all_bars else 0},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+            # #endregion
         else:
             all_bars = api_bars
         
@@ -866,7 +980,24 @@ class CachedDataEngine(DataEngine):
             all_cached_bars = self._cache.get_all_cached_bars(symbol, timeframe)
         
         # Filter to exact requested range and return
-        result = [b for b in all_bars if start <= b.timestamp <= end]
+        # Use normalized timestamp comparison (same as check_coverage and cached_bars filtering) for consistency
+        unit_seconds = self._cache._get_time_unit_seconds(timeframe)
+        if unit_seconds:
+            # Normalize timestamps to unit boundaries (same as check_coverage)
+            normalized_start = self._cache._normalize_timestamp_to_unit(start, unit_seconds)
+            normalized_end = self._cache._normalize_timestamp_to_unit(end, unit_seconds)
+            result = [
+                b for b in all_bars
+                if normalized_start <= self._cache._normalize_timestamp_to_unit(b.timestamp, unit_seconds) <= normalized_end
+            ]
+        else:
+            # For unknown timeframes, use exact timestamp comparison
+            result = [b for b in all_bars if start <= b.timestamp <= end]
+        # #region agent log
+        with open(r'c:\Users\JiantaoPan\OneDrive\Documents\Code\LLM-Investment-Copilot\.cursor\debug.log', 'a') as f:
+            import json
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"cached_engine.py:995","message":"final filter result","data":{"all_bars_count":len(all_bars) if all_bars else 0,"result_count":len(result),"start":str(start),"end":str(end),"result_dates":[str(b.timestamp.date()) for b in result[:5]]},"timestamp":int(__import__('time').time()*1000)}) + '\n')
+        # #endregion
         return result
     
     async def stream_bars(

@@ -273,40 +273,30 @@ class AdaptiveDCAStrategy(Strategy):
         ctx.log("Strategy initialized")
 
     async def on_decision(self, ctx: Context, now: datetime) -> None:
+        from core.strategy.strategy_utils import check_trading_day, get_end_time_for_timeframe
+        
         # Check if this is a trading day - skip weekends/holidays silently
         current_date = now.date()
-        try:
-            from core.data.trading_calendar import is_trading_day
-            is_td = is_trading_day(current_date)
-            if not is_td:
-                # Not a trading day (weekend/holiday) - skip silently
-                # However, check if this is a new contribution period and record it
-                # This ensures all contribution periods appear in the weekly actions table
-                period_key = self._contribution_manager.period_key(current_date)
-                is_new_period = self._contribution_manager.is_new_period(current_date, self._last_period_key)
-                if is_new_period and hasattr(ctx.logger, 'record_decision'):
-                    # This is a new contribution period on a non-trading day
-                    # Record a HOLD decision so the period appears in the table
-                    # The actual contribution will happen on the next trading day
-                    # Don't fetch FGI for non-trading days - use default neutral value
-                    if period_key not in self._recorded_periods:
-                        fgi_value = 50.0  # Default to neutral for non-trading days
-                        ctx.logger.record_decision(now, fgi_value, self.config.action_hold, 0.0)  # Price will be updated on next trading day
-                        self._recorded_periods.add(period_key)
-                return
-        except Exception:
-            # If trading calendar check fails, continue (fallback behavior)
-            pass
+        is_td = check_trading_day(current_date)
+        if not is_td:
+            # Not a trading day (weekend/holiday) - skip silently
+            # However, check if this is a new contribution period and record it
+            # This ensures all contribution periods appear in the weekly actions table
+            period_key = self._contribution_manager.period_key(current_date)
+            is_new_period = self._contribution_manager.is_new_period(current_date, self._last_period_key)
+            if is_new_period and hasattr(ctx.logger, 'record_decision'):
+                # This is a new contribution period on a non-trading day
+                # Record a HOLD decision so the period appears in the table
+                # The actual contribution will happen on the next trading day
+                # Don't fetch FGI for non-trading days - use default neutral value
+                if period_key not in self._recorded_periods:
+                    fgi_value = 50.0  # Default to neutral for non-trading days
+                    ctx.logger.record_decision(now, fgi_value, self.config.action_hold, 0.0)  # Price will be updated on next trading day
+                    self._recorded_periods.add(period_key)
+            return
         
-        # For daily bars, request up to end of current day to ensure we get today's bar
-        # Daily bars are typically timestamped at 00:00:00, so requesting up to current time (e.g., 16:00:00)
-        # might miss the bar for the current day
-        if self.config.timeframe.upper() in ("D", "1D"):
-            # Request up to end of current day (23:59:59) instead of current time
-            end_time = datetime.combine(current_date, datetime.max.time())
-        else:
-            # For other timeframes, use current time
-            end_time = now
+        # Get appropriate end time for bar fetching
+        end_time = get_end_time_for_timeframe(now, current_date, self.config.timeframe)
         
         # Use the configured timeframe and lookback period (validated in __init__)
         lookback_start = now - timedelta(days=self.config.lookback_days)

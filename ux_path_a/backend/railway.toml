@@ -1,0 +1,7 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "ux_path_a/backend/Dockerfile"
+
+[deploy]
+# Start command is defined in Dockerfile CMD
+# No need to override here

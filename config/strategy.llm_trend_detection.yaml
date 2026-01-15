@@ -8,9 +8,14 @@ ma_short: 20
 ma_medium: 50
 ma_long: 200
 rsi_length: 14
+# min_bars_required: 200  # Optional: override calculated minimum (defaults to max of all indicator requirements)
 
-llm_model: "gpt-5-mini"
-llm_temperature: 0.0
+# LLM Configuration
+# If llm_model is null or not specified, uses primary_model from config/env.backtest.yaml
+# Strategy-specific overrides are allowed (e.g., llm_temperature, llm_timeout)
+llm_model: null  # null = use primary_model from centralized config (config/env.backtest.yaml)
+llm_temperature: 0.0  # Override default temperature for this strategy
+llm_timeout: 180.0      # Timeout in seconds for LLM API requests (default: 3 minutes)
 use_llm: true            # set false for cheap large backtests
 openai_api_key: "YOUR_OPENAI_API_KEY"  # OpenAI API key (set in config/secrets.yaml)
 

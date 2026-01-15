@@ -23,6 +23,8 @@ try:
         normalize_timestamp,
         normalize_unix_timestamp,
         to_et_timestamp,
+        normalize_to_date,
+        normalize_timestamp_for_comparison,
     )
     _TIMESTAMP_UTILS_AVAILABLE = True
 except ImportError:
@@ -42,5 +44,7 @@ if _TIMESTAMP_UTILS_AVAILABLE:
         "normalize_timestamp",
         "normalize_unix_timestamp",
         "to_et_timestamp",
+        "normalize_to_date",
+        "normalize_timestamp_for_comparison",
     ])
 

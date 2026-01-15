@@ -21,12 +21,27 @@ from core.visualization.chart_config import (
     get_chart_config,
     GenericChartConfig,
 )
-from core.visualization.chart_config import (
-    ChartConfig, 
-    IndicatorType, 
-    get_chart_config,
-    GenericChartConfig,
-)
+from core.utils.timestamp import normalize_to_date
+
+
+# ---------- CONSTANTS ----------
+
+# Chart layout constants
+CHART_USABLE_WIDTH_RATIO = 0.8  # 80% of chart width used for bars (rest is margins/spacing)
+VERTICAL_SPACING = 0.05  # Spacing between subplots
+
+# Signal positioning constants
+PRICE_OFFSET_RATIO = 0.02  # 2% of price range as offset for trade signals
+SIGNAL_TOP_POSITION = 0.95  # 95% of max for buy signals on indicator panel
+SIGNAL_BOTTOM_POSITION = 1.05  # 105% of min for sell signals on indicator panel
+INDICATOR_BUY_OFFSET = 0.05  # 5% above indicator max for buy signals
+INDICATOR_SELL_OFFSET = 0.05  # 5% below indicator min for sell signals
+
+# Visual styling constants
+OPACITY_DEFAULT = 0.8  # Default opacity for overlays
+OPACITY_BANDS = 0.7  # Opacity for Bollinger Bands
+OPACITY_MA = 0.9  # Opacity for Moving Averages
+MIN_TRIANGLE_SIZE = 4  # Minimum triangle marker size in pixels
 
 
 # ---------- THEME DEFINITIONS ----------
@@ -168,15 +183,41 @@ def get_theme(theme_name: str) -> Dict[str, str]:
 
 def bars_to_dataframe(bars: List[Bar]) -> pd.DataFrame:
     """Convert list of Bar objects to pandas DataFrame."""
+    if not bars:
+        return pd.DataFrame()
+    
+    # Remove duplicates by timestamp (keep last occurrence if duplicates exist)
+    # This prevents pandas from having duplicate index values which could cause issues
+    seen_timestamps = {}
+    unique_bars = []
+    for bar in bars:
+        # Use date() for daily bars to normalize timestamps to same day
+        # This handles cases where timestamps might have different times but same date
+        if bar.timeframe.upper() in ("D", "1D"):
+            key = bar.timestamp.date()
+        else:
+            key = bar.timestamp
+        
+        # Keep the last bar for each unique timestamp/date
+        seen_timestamps[key] = bar
+    
+    unique_bars = list(seen_timestamps.values())
+    
     data = {
-        "Open": [b.open for b in bars],
-        "High": [b.high for b in bars],
-        "Low": [b.low for b in bars],
-        "Close": [b.close for b in bars],
-        "Volume": [b.volume for b in bars],
+        "Open": [b.open for b in unique_bars],
+        "High": [b.high for b in unique_bars],
+        "Low": [b.low for b in unique_bars],
+        "Close": [b.close for b in unique_bars],
+        "Volume": [b.volume for b in unique_bars],
     }
-    df = pd.DataFrame(data, index=[b.timestamp for b in bars])
+    df = pd.DataFrame(data, index=[b.timestamp for b in unique_bars])
     df = df.sort_index()
+    
+    # Remove any remaining duplicate indices (keep last)
+    if df.index.duplicated().any():
+        df = df[~df.index.duplicated(keep='last')]
+        df = df.sort_index()
+    
     return df
 
 
@@ -333,6 +374,7 @@ class PlotlyChartVisualizer:
         regime_history: Optional[List[Dict[str, Any]]] = None,  # For trend indicator
         chart_config: Optional[ChartConfig] = None,  # Strategy-specific chart configuration
         strategy_name: Optional[str] = None,  # Auto-detect config if chart_config not provided
+        trade_signals: Optional[List[TradeSignal]] = None,  # Trade entry/exit signals for overlay
     ) -> go.Figure:
         """
         Build a complete multi-panel chart.
@@ -384,6 +426,7 @@ class PlotlyChartVisualizer:
         df = df.sort_index()
         
         signals_df = signals_to_dataframe(signals or [])
+        trade_signals_df = signals_to_dataframe(trade_signals or [])
         indicator_df = indicator_to_dataframe(indicator_data or [])
         
         # If no indicator data provided, calculate basic indicators from bars (like fastapi_stockchart)
@@ -416,7 +459,7 @@ class PlotlyChartVisualizer:
             rows=num_rows,
             cols=1,
             shared_xaxes=True,
-            vertical_spacing=0.05,
+            vertical_spacing=VERTICAL_SPACING,
             row_heights=row_heights,
             subplot_titles=subplot_titles,
         )
@@ -452,6 +495,7 @@ class PlotlyChartVisualizer:
                 row=current_row, 
                 indicator_df=indicator_df_for_price,
                 show_signals=chart_config.show_signals_on_price,
+                trade_signals_df=trade_signals_df,
             )
             current_row += 1
         
@@ -493,19 +537,36 @@ class PlotlyChartVisualizer:
             dragmode="pan",  # Enable panning mode (horizontal only when y-axes are fixed)
         )
         
-        # Build rangebreaks: weekends + missing business days (holidays) - match fastapi_stockchart
+        # Build rangebreaks: only skip non-trading days (weekends + holidays)
+        # Missing trading days will show as gaps in the chart (not hidden)
         rangebreaks = [dict(bounds=["sat", "mon"])]
         if not df.empty:
-            idx_dates = pd.to_datetime(df.index).normalize()
-            all_bus_days = pd.date_range(
-                start=idx_dates.min(),
-                end=idx_dates.max(),
-                freq="B",
-            )
-            present_days = pd.Index(idx_dates.unique())
-            missing_days = all_bus_days.difference(present_days)
-            if len(missing_days) > 0:
-                rangebreaks.append(dict(values=missing_days))
+            try:
+                from core.data import is_trading_day
+                idx_dates = pd.to_datetime(df.index).normalize()
+                # Get all dates in the range
+                all_dates = pd.date_range(
+                    start=idx_dates.min(),
+                    end=idx_dates.max(),
+                    freq="D",
+                )
+                # Find non-trading days (weekends + holidays) to hide
+                non_trading_days = []
+                for date_val in all_dates:
+                    date_obj = date_val.date()
+                    if not is_trading_day(date_obj):
+                        non_trading_days.append(date_val)
+                
+                if len(non_trading_days) > 0:
+                    rangebreaks.append(dict(values=non_trading_days))
+            except Exception as e:
+                # If trading calendar check fails, fallback to just weekends
+                # Log warning but don't break the chart
+                import logging
+                logging.getLogger(__name__).warning(
+                    f"Failed to check trading days for rangebreaks: {e}. "
+                    "Falling back to weekend-only rangebreaks."
+                )
         
         # Update x-axes with gap removal
         self.fig.update_xaxes(
@@ -529,7 +590,7 @@ class PlotlyChartVisualizer:
         
         return self.fig
     
-    def _add_price_chart(self, df: pd.DataFrame, signals_df: pd.DataFrame, row: int, indicator_df: Optional[pd.DataFrame] = None, show_signals: bool = False):
+    def _add_price_chart(self, df: pd.DataFrame, signals_df: pd.DataFrame, row: int, indicator_df: Optional[pd.DataFrame] = None, show_signals: bool = False, trade_signals_df: Optional[pd.DataFrame] = None):
         """Add price chart with candlesticks, signals, and optionally Bollinger Bands."""
         # Candlesticks - match fastapi_stockchart styling exactly
         self.fig.add_trace(
@@ -553,16 +614,6 @@ class PlotlyChartVisualizer:
         
         # Add Bollinger Bands if indicator_df is provided (LeveragedETFIndicatorData or LLMTrendIndicatorData)
         if indicator_df is not None and not indicator_df.empty and "bb_upper" in list(indicator_df.columns):
-            # Normalize timestamps to date-only for better matching (handles timezone/time differences)
-            def normalize_to_date(ts):
-                """Normalize timestamp to date for comparison."""
-                if isinstance(ts, pd.Timestamp):
-                    return ts.normalize().date()
-                elif isinstance(ts, datetime):
-                    return ts.date()
-                else:
-                    return pd.to_datetime(ts).normalize().date()
-            
             # Create a mapping from normalized date to indicator data for faster lookup
             indicator_map = {}
             for _, row_data in indicator_df.iterrows():
@@ -724,6 +775,120 @@ class PlotlyChartVisualizer:
         # Add trading signals if enabled
         if show_signals and not signals_df.empty:
             self._add_signals_to_chart(df, signals_df, row=row, panel="price")
+        
+        # Add trade signals (buy/sell) as triangles on price chart
+        if trade_signals_df is not None and not trade_signals_df.empty:
+            # Calculate triangle size to match price bar width
+            triangle_size = 10  # Default fallback
+            if not df.empty:
+                # Estimate bar width: Plotly uses ~80% of chart width for bars (rest is margins/spacing)
+                chart_width_px = self.figsize[0]
+                usable_width = chart_width_px * CHART_USABLE_WIDTH_RATIO
+                num_bars = len(df)
+                
+                if num_bars > 0:
+                    # Average bar width in pixels = usable width / number of bars
+                    estimated_bar_width_px = usable_width / num_bars
+                    # Marker size should match bar width (size is diameter/width of marker)
+                    triangle_size = max(MIN_TRIANGLE_SIZE, int(estimated_bar_width_px))
+            
+            # Filter buy and sell trade signals
+            buy_trades = trade_signals_df[trade_signals_df["side"].str.upper() == "BUY"]
+            sell_trades = trade_signals_df[trade_signals_df["side"].str.upper() == "SELL"]
+            
+            # Position buy signals below price bars, sell signals above price bars
+            # Match trade timestamps to price bars to get exact bar timestamps for center alignment
+            buy_x = []
+            buy_y = []
+            sell_x = []
+            sell_y = []
+            
+            if not df.empty:
+                # Create a mapping from normalized timestamp to bar index timestamp
+                bar_map = {}
+                for idx, (ts, row_data) in enumerate(df.iterrows()):
+                    if isinstance(ts, pd.Timestamp):
+                        ts_key = ts.normalize()
+                    else:
+                        ts_key = pd.to_datetime(ts).normalize()
+                    bar_map[ts_key] = {
+                        'bar_timestamp': ts,  # Store exact bar timestamp for x-axis alignment
+                        'low': row_data['Low'],
+                        'high': row_data['High'],
+                        'close': row_data['Close'],
+                    }
+                
+                # Calculate price range for offset
+                price_min = df['Low'].min()
+                price_max = df['High'].max()
+                price_range = price_max - price_min
+                offset = price_range * PRICE_OFFSET_RATIO
+                
+                # Position buy signals below the bar (at low - offset)
+                for _, trade in buy_trades.iterrows():
+                    trade_ts = pd.to_datetime(trade['timestamp']).normalize()
+                    # Find matching bar and use its exact timestamp for x-axis
+                    if trade_ts in bar_map:
+                        buy_x.append(bar_map[trade_ts]['bar_timestamp'])  # Use exact bar timestamp
+                        buy_y.append(bar_map[trade_ts]['low'] - offset)
+                    else:
+                        # Fallback: use trade timestamp and price with offset
+                        buy_x.append(pd.to_datetime(trade['timestamp']))
+                        buy_y.append(trade['price'] - offset)
+                
+                # Position sell signals above the bar (at high + offset)
+                for _, trade in sell_trades.iterrows():
+                    trade_ts = pd.to_datetime(trade['timestamp']).normalize()
+                    # Find matching bar and use its exact timestamp for x-axis
+                    if trade_ts in bar_map:
+                        sell_x.append(bar_map[trade_ts]['bar_timestamp'])  # Use exact bar timestamp
+                        sell_y.append(bar_map[trade_ts]['high'] + offset)
+                    else:
+                        # Fallback: use trade timestamp and price with offset
+                        sell_x.append(pd.to_datetime(trade['timestamp']))
+                        sell_y.append(trade['price'] + offset)
+            
+            # Add buy trade signals (green up triangle) below price bars
+            if not buy_trades.empty and len(buy_y) > 0:
+                self.fig.add_trace(
+                    go.Scatter(
+                        x=buy_x,  # Use exact bar timestamps for center alignment
+                        y=buy_y,
+                        mode="markers",
+                        name="Trade Buy",
+                        marker=dict(
+                            symbol="triangle-up",
+                            size=triangle_size,
+                            color=self.theme["buy_signal"],
+                            line=dict(width=1, color="white"),
+                        ),
+                        hovertemplate="Buy @ %{customdata:.2f}<br>%{x}<extra></extra>",
+                        customdata=buy_trades["price"].values if "price" in buy_trades.columns else None,
+                    ),
+                    row=row,
+                    col=1,
+                )
+            
+            # Add sell trade signals (red down triangle) above price bars
+            if not sell_trades.empty and len(sell_y) > 0:
+                self.fig.add_trace(
+                    go.Scatter(
+                        x=sell_x,  # Use exact bar timestamps for center alignment
+                        y=sell_y,
+                        mode="markers",
+                        name="Trade Sell",
+                        marker=dict(
+                            symbol="triangle-down",
+                            size=triangle_size,
+                            color=self.theme["sell_signal"],
+                            line=dict(width=1, color="white"),
+                        ),
+                        hovertemplate="Sell @ %{customdata:.2f}<br>%{x}<extra></extra>",
+                        customdata=sell_trades["price"].values if "price" in sell_trades.columns else None,
+                    ),
+                    row=row,
+                    col=1,
+                )
     
     def _add_volume_chart(self, df: pd.DataFrame, row: int, indicator_df: Optional[pd.DataFrame] = None):
         """Add volume chart with optional volume MA."""
@@ -1064,14 +1229,18 @@ class PlotlyChartVisualizer:
         trend_range = df[df["regime"] == "RANGE"]
         
         # Green bars for TREND_UP
+        # Width automatically matches price bars (Plotly calculates from timestamp spacing)
         if not trend_up.empty:
             self.fig.add_trace(
                 go.Bar(
                     x=trend_up["timestamp"],
                     y=trend_up["trend_strength"] * 100,  # Scale for visibility
                     name="Uptrend Strength",
-                    marker_color=self.theme["buy_signal"],  # Green
+                    marker=dict(
+                        color=self.theme["buy_signal"],  # Green
                     opacity=0.7,
+                        line=dict(width=2, color=self.theme["buy_signal"]),  # Thicker border for visibility
+                    ),
                     hovertemplate="Uptrend: %{y:.0f}<extra></extra>",
                 ),
                 row=row,
@@ -1079,30 +1248,52 @@ class PlotlyChartVisualizer:
             )
         
         # Red bars for TREND_DOWN
+        # Width automatically matches price bars (Plotly calculates from timestamp spacing)
         if not trend_down.empty:
             self.fig.add_trace(
                 go.Bar(
                     x=trend_down["timestamp"],
                     y=-(trend_down["trend_strength"] * 100),  # Negative for display
                     name="Downtrend Strength",
-                    marker_color=self.theme["sell_signal"],  # Red
+                    marker=dict(
+                        color=self.theme["sell_signal"],  # Red
                     opacity=0.7,
+                        line=dict(width=2, color=self.theme["sell_signal"]),  # Thicker border for visibility
+                    ),
                     hovertemplate="Downtrend: %{y:.0f}<extra></extra>",
                 ),
                 row=row,
                 col=1,
             )
         
-        # Yellow bars for RANGE (Hold)
+        # Yellow bars for RANGE (Hold) - use range_strength to show intensity
+        # Width automatically matches price bars (Plotly calculates from timestamp spacing)
         if not trend_range.empty:
+            # Display range_strength scaled to 0-100, positioned at a small positive offset
+            # This shows the strength of the range condition while keeping bars visible above zero
+            # Position at offset (2-10 range) to show above zero line but not overlap with trend bars
+            if "range_strength" in trend_range.columns:
+                # Scale range_strength (0-1) to percentage (0-100) for display
+                range_strength_pct = trend_range["range_strength"] * 100
+                # Position bars at a small offset (2-10) scaled by range_strength
+                # Strong range (100%) = 10, weak range (0%) = 2
+                range_values = 2 + (range_strength_pct * 0.08)  # Scale to 2-10 range for visual display
+            else:
+                range_values = [5] * len(trend_range)  # Fallback to fixed value
+                range_strength_pct = [0] * len(trend_range)
+            
             self.fig.add_trace(
                 go.Bar(
                     x=trend_range["timestamp"],
-                    y=[5] * len(trend_range),  # Small bar for visibility
-                    name="Range/Hold",
-                    marker_color=self.theme["equity_line"],  # Yellow/Gold
+                    y=range_values,
+                    name="Range Strength",
+                    marker=dict(
+                        color=self.theme["equity_line"],  # Yellow/Gold
                     opacity=0.7,
-                    hovertemplate="Range/Hold<extra></extra>",
+                        line=dict(width=2, color=self.theme["equity_line"]),  # Thicker border for visibility
+                    ),
+                    hovertemplate="Range Strength: %{customdata:.0f}%<extra></extra>",
+                    customdata=range_strength_pct if "range_strength" in trend_range.columns else [0] * len(trend_range),
                 ),
                 row=row,
                 col=1,
@@ -1127,6 +1318,22 @@ class PlotlyChartVisualizer:
         # Add trading signals if enabled
         if show_signals and signals_df is not None and not signals_df.empty:
             self._add_signals_to_chart(df, signals_df, row=row, panel="indicator")
+    
+    def _add_signals_to_chart(self, df: pd.DataFrame, signals_df: pd.DataFrame, row: int, panel: str = "price"):
+        """
+        Add trading signal markers (buy/sell) to the chart.
+        
+        NOTE: Triangle markers have been removed. Only signal strength bars are displayed.
+        This method is kept for API compatibility but does nothing.
+        
+        Args:
+            df: DataFrame with timestamp index/column for alignment
+            signals_df: DataFrame with columns: timestamp, price, side
+            row: Subplot row number
+            panel: Panel type ("price" or "indicator") - determines y-position
+        """
+        # Triangle markers removed - only signal strength bars are displayed
+        return
     
     def _add_equity_chart(self, equity_curve: Dict[datetime, float], row: int):
         """Add equity curve chart."""

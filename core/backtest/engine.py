@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional, Any
 
 from core.backtest.scheduler import DecisionScheduler
@@ -108,9 +108,68 @@ class BacktestEngine:
                 # This avoids duplicate fetches - engine fetches once with max lookback, strategy reuses
                 from datetime import timedelta
                 if timeframe.upper() in ("D", "1D") or (timeframe.upper().endswith("D") and not timeframe.upper().startswith("W")):
-                    # For daily: strategy needs 30 days, engine fetches that
-                    lookback_start = now - timedelta(days=30)
-                    bars = await self._data.get_bars(symbol, lookback_start, now, timeframe=timeframe)
+                    # For daily bars, use strategy's required bars to calculate trading days lookback
+                    # Check if strategy has a method to get minimum required bars
+                    min_bars_required = 250  # Default fallback (covers most strategies)
+                    if hasattr(strategy, '_cfg') and hasattr(strategy._cfg, 'get_min_bars_required'):
+                        min_bars_required = strategy._cfg.get_min_bars_required()
+                    
+                    # Use trading days lookback instead of calendar days
+                    # This ensures we fetch enough bars (e.g., 200 trading days, not 30 calendar days)
+                    # Calculate the exact trading day we need to start from to get min_bars_required bars including today
+                    from core.utils.trading_days import get_trading_days
+                    # Get trading days from a date far enough back to today
+                    # We need exactly min_bars_required bars including today (or the last trading day if today isn't one)
+                    estimated_calendar_days = int(min_bars_required * 1.5)  # Account for weekends/holidays
+                    start_date = now.date() - timedelta(days=estimated_calendar_days)
+                    trading_days_list = get_trading_days(start_date, now.date(), exchange="NYSE")
+                    # Normalize to Python date objects and sort
+                    normalized_trading_days = []
+                    for d in trading_days_list:
+                        if hasattr(d, 'date') and callable(getattr(d, 'date', None)):
+                            normalized_trading_days.append(d.date())
+                        elif isinstance(d, date):
+                            normalized_trading_days.append(d)
+                        else:
+                            try:
+                                normalized_trading_days.append(date.fromisoformat(str(d)))
+                            except (ValueError, AttributeError):
+                                continue
+                    normalized_trading_days = sorted(set(normalized_trading_days))
+                    # Take the last min_bars_required trading days - the first one is our start date
+                    if len(normalized_trading_days) >= min_bars_required:
+                        lookback_date = normalized_trading_days[-min_bars_required]
+                    else:
+                        # Not enough trading days in range, try with a larger range
+                        start_date = now.date() - timedelta(days=int(min_bars_required * 2))
+                        trading_days_list = get_trading_days(start_date, now.date(), exchange="NYSE")
+                        normalized_trading_days = []
+                        for d in trading_days_list:
+                            if hasattr(d, 'date') and callable(getattr(d, 'date', None)):
+                                normalized_trading_days.append(d.date())
+                            elif isinstance(d, date):
+                                normalized_trading_days.append(d)
+                            else:
+                                try:
+                                    normalized_trading_days.append(date.fromisoformat(str(d)))
+                                except (ValueError, AttributeError):
+                                    continue
+                        normalized_trading_days = sorted(set(normalized_trading_days))
+                        if len(normalized_trading_days) >= min_bars_required:
+                            lookback_date = normalized_trading_days[-min_bars_required]
+                        else:
+                            # Fallback: use the first trading day in the list
+                            lookback_date = normalized_trading_days[0] if normalized_trading_days else start_date
+                    # Convert to datetime - use start of day (00:00:00) for daily bars to ensure we include the bar for that day
+                    # Using the time component from now (16:00:00) can cause issues with timestamp normalization
+                    lookback_start = datetime.combine(lookback_date, datetime.min.time())
+                    # For daily bars, also set end to start of day to ensure we only get bars up to and including today
+                    # This prevents including bars from the next trading day
+                    if timeframe.upper() in ("D", "1D") or (timeframe.upper().endswith("D") and not timeframe.upper().startswith("W")):
+                        end_datetime = datetime.combine(now.date(), datetime.min.time())
+                    else:
+                        end_datetime = now
+                    bars = await self._data.get_bars(symbol, lookback_start, end_datetime, timeframe=timeframe)
                 elif timeframe.upper() in ("W", "1W") or timeframe.upper().endswith("W"):
                     # For weekly: get bars up to current decision point
                     lookback_start = now - timedelta(weeks=14)

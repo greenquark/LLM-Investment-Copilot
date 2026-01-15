@@ -109,7 +109,7 @@ def inspect_cache():
             print("      Cache location: data_cache/llm_trend/")
         return
     
-    print(f"\n✓ Found {len(all_states)} cached state(s):\n")
+    print(f"\n[OK] Found {len(all_states)} cached state(s):\n")
     
     for (symbol, timeframe, state_date), state in all_states.items():
         print(f"Symbol: {symbol}")
@@ -135,16 +135,16 @@ def inspect_cache():
     state = get_state(test_symbol, test_timeframe, as_of_date=test_date)
     if state:
         state_date = state.as_of.date()
-        print(f"\n✓ Found cached state for {test_symbol} ({test_timeframe}) on {test_date}:")
+        print(f"\n[OK] Found cached state for {test_symbol} ({test_timeframe}) on {test_date}:")
         print(f"  Cached date: {state_date}")
         print(f"  Requested date: {test_date}")
         if state_date == test_date:
-            print(f"  ✓ Date matches! Cache hit for {test_date}")
+            print(f"  [OK] Date matches! Cache hit for {test_date}")
         else:
-            print(f"  ✗ Date mismatch! Cache miss for {test_date}")
+            print(f"  [X] Date mismatch! Cache miss for {test_date}")
             print(f"    (Cache has {state_date}, but need {test_date})")
     else:
-        print(f"\n✗ No cached state found for {test_symbol} ({test_timeframe}) on {test_date}")
+        print(f"\n[X] No cached state found for {test_symbol} ({test_timeframe}) on {test_date}")
     
     # Also check latest state
     latest_state = get_state(test_symbol, test_timeframe)

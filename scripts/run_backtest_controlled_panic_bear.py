@@ -34,6 +34,14 @@ from core.data.trading_calendar import get_trading_calendar
 from core.backtest.scheduler import DecisionScheduler
 from core.backtest.engine import BacktestEngine
 from core.backtest.benchmarks import run_buy_and_hold
+from core.backtest.backtest_utils import (
+    load_backtest_config,
+    get_backtest_symbol,
+    get_backtest_timeframe,
+    parse_backtest_dates,
+    print_backtest_header,
+    create_scheduler_from_timeframe,
+)
 from core.strategy.controlled_panic_bear import (
     ControlledPanicBearStrategy,
     ControlledPanicBearConfig,
@@ -42,40 +50,37 @@ from core.utils.logging import Logger
 from core.utils.config_loader import load_config_with_secrets
 from core.visualization import PlotlyChartVisualizer
 from core.visualization.chart_config import get_chart_config
+from typing import Optional
 
 
-async def main(use_local_chart: bool = False):
-    """Main backtest function."""
-    # Use absolute paths for config files
-    config_dir = project_root / "config"
-    env_file = config_dir / "env.backtest.yaml"
-    strategy_file = config_dir / "strategy.controlled_panic_bear.yaml"
+async def main(
+    use_local_chart: bool = False,
+    ticker: Optional[str] = None,
+    timeframe: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    days: Optional[int] = None,
+):
+    """
+    Main backtest function.
     
-    if not env_file.exists():
-        raise FileNotFoundError(f"Config file not found: {env_file}")
+    Args:
+        use_local_chart: Use local chart instead of web chart
+        ticker: Optional ticker symbol (overrides config)
+        timeframe: Optional timeframe (overrides config)
+        start_date: Optional start date in YYYY-MM-DD format (overrides config)
+        end_date: Optional end date in YYYY-MM-DD format (overrides config)
+        days: Optional number of calendar days for backtest period (e.g., 365 for one year)
+    """
+    # Load backtest configuration using shared utilities
+    env, strat_cfg_raw, bt_cfg = load_backtest_config(
+        project_root=project_root,
+        strategy_config_file="strategy.controlled_panic_bear.yaml",
+    )
     
-    # Load environment config
-    env = load_config_with_secrets(env_file)
-    
-    # Load strategy config if exists, otherwise use defaults
-    if strategy_file.exists():
-        strat_cfg_raw = load_config_with_secrets(strategy_file)
-    else:
-        print(f"Strategy config not found: {strategy_file}")
-        print("Using default configuration")
-        strat_cfg_raw = {}
-    
-    # Validate required config keys
-    if "backtest" not in env:
-        raise ValueError("Missing 'backtest' section in config")
-    
-    bt_cfg = env["backtest"]
-    
-    # Validate backtest config
-    required_bt_keys = ["start", "end", "initial_cash"]
-    for key in required_bt_keys:
-        if key not in bt_cfg:
-            raise ValueError(f"Missing 'backtest.{key}' in config")
+    # Get symbol and timeframe with CLI priority
+    symbol = get_backtest_symbol(bt_cfg, strat_cfg_raw, cli_symbol=ticker)
+    timeframe = get_backtest_timeframe(bt_cfg, strat_cfg_raw, default="1D", cli_timeframe=timeframe)
     
     # Create data engine from config
     data_engine = create_data_engine_from_config(
@@ -83,9 +88,7 @@ async def main(use_local_chart: bool = False):
         use_for="historical",
     )
     
-    # Create strategy config
-    timeframe = bt_cfg.get("timeframe") or strat_cfg_raw.get("timeframe", "1D")
-    symbol = strat_cfg_raw.get("symbol", "SPY")
+    # Get vix_symbol from strategy config (not overridden by CLI)
     vix_symbol = strat_cfg_raw.get("vix_symbol", "^VIX")
     
     strategy_config = ControlledPanicBearConfig.from_dict(strat_cfg_raw)
@@ -106,10 +109,8 @@ async def main(use_local_chart: bool = False):
     # Create backtest engine
     engine = BacktestEngine(data_engine, scheduler, logger)
     
-    # Parse dates
-    start = datetime.fromisoformat(bt_cfg["start"])
-    end_original = datetime.fromisoformat(bt_cfg["end"])
-    initial_cash = bt_cfg["initial_cash"]
+    # Parse dates with CLI priority
+    start, end_original, initial_cash = parse_backtest_dates(bt_cfg, cli_start_date=start_date, cli_end_date=end_date, cli_days=days)
     
     # Adjust end date to the last trading day on or before the end date
     try:
@@ -143,6 +144,9 @@ async def main(use_local_chart: bool = False):
         logger.log(
             f"Trading calendar unavailable, using original end date {end_date_original}: {e}"
         )
+    
+    # Print backtest header using shared utility
+    print_backtest_header(symbol, start, end, initial_cash, timeframe)
     
     logger.log(
         f"Starting Controlled Panic Bear Backtest for {symbol} "
@@ -278,10 +282,47 @@ if __name__ == "__main__":
         action="store_true",
         help="Use local Python chart instead of web chart",
     )
+    parser.add_argument(
+        "--ticker",
+        type=str,
+        default=None,
+        help="Ticker symbol to use (overrides config files). Example: --ticker SPY",
+    )
+    parser.add_argument(
+        "--timeframe",
+        type=str,
+        default=None,
+        help="Timeframe to use (overrides config files). Example: --timeframe 1D",
+    )
+    parser.add_argument(
+        "--start-date",
+        type=str,
+        default=None,
+        help="Start date for backtest (YYYY-MM-DD, overrides config). Example: --start-date 2024-01-01",
+    )
+    parser.add_argument(
+        "--end-date",
+        type=str,
+        default=None,
+        help="End date for backtest (YYYY-MM-DD, overrides config). Example: --end-date 2024-12-31",
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=None,
+        help="Number of calendar days for backtest period (e.g., 365 for one year). End date defaults to today if not specified. Example: --days 365",
+    )
     args = parser.parse_args()
     
     try:
-        asyncio.run(main(use_local_chart=args.local_chart))
+        asyncio.run(main(
+            use_local_chart=args.local_chart,
+            ticker=args.ticker,
+            timeframe=args.timeframe,
+            start_date=args.start_date,
+            end_date=args.end_date,
+            days=args.days,
+        ))
     except KeyboardInterrupt:
         print("\n\n⚠️  Backtest interrupted by user (Ctrl-C)")
         sys.exit(0)

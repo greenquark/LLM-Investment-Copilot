@@ -236,18 +236,11 @@ class YFinanceDataAdapter(DataEngine):
             )
         except Exception as e:
             # Check if this is a rate limit or API error that should be raised
-            error_str = str(e).lower()
-            if any(keyword in error_str for keyword in ['rate limit', '429', 'too many requests', 'limit exceeded', 'quota', '403', '401', 'payment required', '402']):
-                logger.error(f"YFinance API error (rate limit or authentication issue) for {symbol}: {e}")
-                import traceback
-                logger.debug(traceback.format_exc())
-                raise RuntimeError(f"YFinance API error for {symbol}: {e}") from e
-            else:
-                # For other errors (network issues, etc.), log and raise
-                logger.error(f"YFinance download error for {symbol}: {e}")
-                import traceback
-                logger.debug(traceback.format_exc())
-                raise RuntimeError(f"YFinance download error for {symbol}: {e}") from e
+            from core.utils.error_handling import format_api_error_message
+            import traceback
+            logger.error(format_api_error_message("YFinance", symbol=symbol, error=e))
+            logger.debug(traceback.format_exc())
+            raise RuntimeError(f"YFinance API error for {symbol}: {e}") from e
         
         # Check if we got data
         if df is None or df.empty:
