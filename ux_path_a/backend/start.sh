@@ -25,6 +25,7 @@ python -c "import main; print('✓ main module imported successfully')" || {
 
 # Create base tables first (if they don't exist)
 echo "Creating base database tables..." >&2
+set +e
 python << 'PYTHON_SCRIPT' 2>&1
 import sys
 import traceback
@@ -35,29 +36,21 @@ try:
     from ux_path_a.backend.backend_core.database import Base, engine
     from ux_path_a.backend.backend_core.models import User, ChatSession, ChatMessage, AuditLog, TokenBudget
     print("✓ Imported using absolute imports")
-except ImportError as e:
-    print(f"✗ Import failed: {e}")
-    raise
-    
-    # Mask password in database URL for logging
-    db_url_str = str(engine.url)
-    if '@' in db_url_str:
-        db_url_display = db_url_str.split('@')[-1]
-    else:
-        db_url_display = "local"
-    print(f"Database: {db_url_display}")
-    print("Creating tables from models...")
+    print("Creating tables from models (best-effort)...")
     Base.metadata.create_all(bind=engine)
     print("✓ Base tables created/verified")
-    
 except Exception as e:
-    print(f"✗ ERROR creating tables: {e}")
+    # Best-effort only: never block server startup on DB/table creation.
+    # Health endpoints should still be able to come up even if DB is temporarily unavailable.
+    print(f"WARNING: Base table creation skipped/failed: {e}")
     traceback.print_exc()
-    sys.exit(1)
+    sys.exit(0)
 PYTHON_SCRIPT
+status=$?
+set -e
 
-if [ $? -ne 0 ]; then
-    echo "WARNING: Failed to create base tables, but continuing..." >&2
+if [ $status -ne 0 ]; then
+    echo "WARNING: Base table creation returned non-zero ($status), but continuing..." >&2
 fi
 
 # Run database migrations (don't fail if migrations error)
