@@ -43,10 +43,7 @@ export default function Home() {
     return (
       <AuthModal 
         isOpen={showAuth} 
-        onClose={() => setShowAuth(false)}
-        onLoginSuccess={() => {
-          setShowAuth(false)
-        }}
+        onClose={() => {}}
         login={login}
       />
     )
