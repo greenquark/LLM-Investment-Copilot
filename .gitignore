@@ -35,6 +35,11 @@ ENV/
 # Data cache
 data_cache/
 
+# Node / Next.js
+node_modules/
+.next/
+out/
+
 # Strategy implementation files
 # NOTE: Strategy modules are part of the deployed backend and must be tracked.
 # If you have local-only experiments, put them under a separate ignored directory
