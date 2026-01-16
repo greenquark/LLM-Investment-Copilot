@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 
 interface AuthModalProps {
@@ -17,9 +17,45 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess, login: logi
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [backendStatus, setBackendStatus] = useState<'checking' | 'ok' | 'error'>('checking')
+  const [backendMessage, setBackendMessage] = useState('')
 
   const authHook = useAuth()
   const login = loginProp || authHook.login
+  const checkBackend = async () => {
+    setBackendStatus('checking')
+    setBackendMessage('')
+
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 6000)
+
+    try {
+      const response = await fetch('/api/health', {
+        method: 'GET',
+        cache: 'no-store',
+        signal: controller.signal,
+      })
+
+      if (!response.ok) {
+        setBackendStatus('error')
+        setBackendMessage(`Backend healthcheck failed (${response.status}).`)
+        return
+      }
+
+      setBackendStatus('ok')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Network error'
+      setBackendStatus('error')
+      setBackendMessage(message)
+    } finally {
+      clearTimeout(timeoutId)
+    }
+  }
+
+  useEffect(() => {
+    if (!isOpen) return
+    checkBackend()
+  }, [isOpen])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -90,6 +126,25 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess, login: logi
           {isLogin ? 'Login' : 'Register'}
         </h2>
 
+
+        {backendStatus !== 'ok' && (
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-200">
+            <div className="font-semibold">Backend unavailable</div>
+            <div className="mt-1">
+              {backendStatus === 'checking' ? 'Checking API health...' : backendMessage || 'API is not responding.'}
+            </div>
+            <div className="mt-2 text-xs">
+              Try again or check the Railway backend health: /api/health
+            </div>
+            <button
+              type="button"
+              onClick={checkBackend}
+              className="mt-2 text-xs font-medium underline"
+            >
+              Retry health check
+            </button>
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           {!isLogin && (
             <div>
@@ -141,7 +196,7 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess, login: logi
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || backendStatus === 'error'}
             className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
           >
             {loading ? 'Loading...' : isLogin ? 'Login' : 'Register'}
