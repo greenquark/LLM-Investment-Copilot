@@ -39,11 +39,12 @@ def _get_build_info() -> dict:
 @router.get("/")
 async def health_check():
     """Basic health check."""
+    build = _get_build_info()
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
-        "version": os.getenv("APP_VERSION", "0.1.0"),
-        "build": _get_build_info(),
+        "version": os.getenv("APP_VERSION") or build.get("commit_short") or "0.1.0",
+        "build": build,
     }
 
 

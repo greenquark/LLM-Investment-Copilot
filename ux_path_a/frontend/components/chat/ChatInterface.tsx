@@ -5,6 +5,7 @@ import MessageList from './MessageList'
 import ChatInput from './ChatInput'
 import SessionSidebar from './SessionSidebar'
 import { apiClient } from '@/lib/api'
+import type { HealthResponse } from '@/lib/api'
 
 interface ChatInterfaceProps {
   onLogout?: () => void
@@ -29,6 +30,7 @@ export default function ChatInterface({ onLogout }: ChatInterfaceProps) {
   const [loading, setLoading] = useState(false)
   const [llmModel, setLlmModel] = useState<string | null>(null)
   const [showMessageMeta, setShowMessageMeta] = useState(false)
+  const [backendHealth, setBackendHealth] = useState<HealthResponse | null>(null)
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const isNearBottomRef = useRef(true)
@@ -37,6 +39,10 @@ export default function ChatInterface({ onLogout }: ChatInterfaceProps) {
   useEffect(() => {
     loadSessions()
     loadConfig()
+    ;(async () => {
+      const res = await apiClient.getHealth()
+      if (res.data) setBackendHealth(res.data)
+    })()
   }, [])
 
   const loadConfig = async () => {
@@ -245,6 +251,12 @@ export default function ChatInterface({ onLogout }: ChatInterfaceProps) {
                 {process.env.NEXT_PUBLIC_BUILD_SHA ? `-${process.env.NEXT_PUBLIC_BUILD_SHA.slice(0, 7)}` : ''}
                 {process.env.NEXT_PUBLIC_BUILD_REF ? ` (${process.env.NEXT_PUBLIC_BUILD_REF})` : ''}
               </p>
+              {backendHealth?.build?.commit_short && (
+                <p className="text-xs text-gray-400 dark:text-gray-500">
+                  Backend {backendHealth.version ? `v${backendHealth.version}` : ''}-{backendHealth.build.commit_short}
+                  {backendHealth.build.branch ? ` (${backendHealth.build.branch})` : ''}
+                </p>
+              )}
             </div>
             <div className="flex items-center gap-4">
               {llmModel && (
