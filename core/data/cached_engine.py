@@ -69,16 +69,29 @@ class CachedDataEngine(DataEngine):
         self._base_engine = base_engine
         self._cache_enabled = cache_enabled and cache_dir is not None and _CACHE_AVAILABLE
         
+        self._cache = None
         if self._cache_enabled and DataCache is not None:
-            self._cache = DataCache(cache_dir)
-        else:
-            self._cache = None
-            if cache_enabled and not _CACHE_AVAILABLE:
-                error_msg = globals().get('_CACHE_ERROR', 'Unknown error')
+            # DataCache may import successfully but still raise at runtime if pandas/pyarrow
+            # can't be imported (e.g. missing wheels on a target platform).
+            try:
+                self._cache = DataCache(cache_dir)
+            except Exception as e:
+                self._cache = None
+                self._cache_enabled = False
                 logger.warning(
-                    f"Caching requested but pandas/pyarrow not available. "
-                    f"Error: {error_msg}. "
-                    f"Try: pip install --upgrade --force-reinstall pandas pyarrow numpy"
+                    "Disabling caching because cache backend couldn't initialize: %s. "
+                    "Continuing without cache.",
+                    e,
+                    exc_info=True,
+                )
+        else:
+            if cache_enabled and not _CACHE_AVAILABLE:
+                error_msg = globals().get("_CACHE_ERROR", "Unknown error")
+                logger.warning(
+                    "Caching requested but pandas/pyarrow not available. "
+                    "Error: %s. Continuing without cache. "
+                    "To enable caching, install: pandas pyarrow numpy",
+                    error_msg,
                 )
         
         # Cache statistics
