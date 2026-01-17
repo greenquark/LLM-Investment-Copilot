@@ -13,6 +13,7 @@ from openai import OpenAI
 from openai import APIError
 import json
 import ast
+import re
 
 # Use absolute imports (works in both local and Railway with PYTHONPATH=/app)
 from ux_path_a.backend.backend_core.config import settings
@@ -82,6 +83,117 @@ class ChatOrchestrator:
         """
         if not payload:
             return None
+
+    @staticmethod
+    def _extract_yyyy_mm_dd(message: str) -> Optional[str]:
+        if not message:
+            return None
+        m = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", message)
+        return m.group(1) if m else None
+
+    @staticmethod
+    def _message_requests_daily_bar(message: str) -> bool:
+        m = (message or "").lower()
+        return any(k in m for k in ["daily bar", "daily quote", "quote", "ohlc", "open", "high", "low", "close"])
+
+    @staticmethod
+    def _format_money(x: Any) -> str:
+        try:
+            f = float(x)
+            return f"${f:,.2f}"
+        except Exception:
+            return str(x)
+
+    @staticmethod
+    def _format_int(x: Any) -> str:
+        try:
+            return f"{int(float(x)):,}"
+        except Exception:
+            return str(x)
+
+    @classmethod
+    def _build_daily_bar_quote_markdown(cls, payload: dict, requested_date: Optional[str] = None) -> Optional[str]:
+        bars = payload.get("bars")
+        if not isinstance(bars, list) or not bars:
+            return None
+
+        symbol = str(payload.get("symbol") or "Symbol")
+        timeframe = str(payload.get("timeframe") or "")
+
+        # Choose bar: exact date match if provided, else last bar.
+        chosen = None
+        if requested_date:
+            for b in bars:
+                if isinstance(b, dict) and isinstance(b.get("timestamp"), str) and b["timestamp"].startswith(requested_date):
+                    chosen = b
+                    break
+        if chosen is None:
+            chosen = bars[-1] if isinstance(bars[-1], dict) else None
+        if not isinstance(chosen, dict):
+            return None
+
+        ts = str(chosen.get("timestamp") or "")
+        date = ts.split("T")[0] if ts else (requested_date or "")
+
+        md = []
+        md.append(f"### {symbol} — Daily bar ({date or timeframe or '1D'})")
+        md.append("")
+        md.append("| Open | High | Low | Close | Volume | Timestamp |")
+        md.append("|---:|---:|---:|---:|---:|---|")
+        md.append(
+            f"| {cls._format_money(chosen.get('open'))} | {cls._format_money(chosen.get('high'))} | "
+            f"{cls._format_money(chosen.get('low'))} | {cls._format_money(chosen.get('close'))} | "
+            f"{cls._format_int(chosen.get('volume'))} | {ts} |"
+        )
+        md.append("")
+        md.append(f"Source: `get_bars` (timeframe: {timeframe or '1D'}, bars: {payload.get('count', len(bars))})")
+        return "\n".join(md)
+
+    @staticmethod
+    def _normalize_disclaimer_and_risk(text: str) -> str:
+        """
+        - Remove per-message 'Risk & use' boilerplate (keep it in /disclaimer).
+        - Ensure disclaimer is a clickable markdown link.
+        """
+        if not text:
+            return text
+        lines = text.splitlines()
+        out = []
+        for line in lines:
+            if line.strip().lower().startswith("risk & use"):
+                continue
+            # Normalize "Disclaimer: /disclaimer" -> markdown link
+            if line.strip() == "Disclaimer: /disclaimer":
+                out.append("Disclaimer: [Disclaimer](/disclaimer)")
+                continue
+            out.append(line)
+        return "\n".join(out).strip()
+
+    @classmethod
+    def _maybe_inject_daily_quote(cls, user_message: str, content: Optional[str], tool_results: Optional[List[Dict[str, Any]]]) -> str:
+        base = content or ""
+        if not cls._message_requests_daily_bar(user_message):
+            return base
+        if not tool_results:
+            return base
+        # If it's already nicely formatted (table), don't add another.
+        if "| Open | High | Low | Close |" in base:
+            return base
+
+        requested_date = cls._extract_yyyy_mm_dd(user_message)
+
+        for tr in tool_results:
+            if not isinstance(tr, dict) or tr.get("name") != "get_bars":
+                continue
+            payload = cls._parse_tool_result_payload(tr.get("result") if isinstance(tr.get("result"), str) else "")
+            if not payload or payload.get("error"):
+                continue
+            quote_md = cls._build_daily_bar_quote_markdown(payload, requested_date=requested_date)
+            if not quote_md:
+                continue
+            return (base + ("\n\n" if base else "") + quote_md).strip()
+
+        return base
         try:
             obj = json.loads(payload)
             return obj if isinstance(obj, dict) else None
@@ -461,6 +573,10 @@ class ChatOrchestrator:
 
             # Ensure chart rendering parity (frontend requires a ```chart JSON block)
             content = self._maybe_inject_chart(message, content, tool_results)
+            # Improve readability parity: inject standard daily-bar quote format when applicable
+            content = self._maybe_inject_daily_quote(message, content, tool_results)
+            # Keep disclaimers as a link (and remove per-message boilerplate)
+            content = self._normalize_disclaimer_and_risk(content or "")
             
             # Serialize tool_calls to ensure they're JSON serializable
             tool_calls_serialized = None

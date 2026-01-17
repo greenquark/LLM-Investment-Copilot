@@ -254,7 +254,12 @@ export default function ChatInterface({ onLogout }: ChatInterfaceProps) {
               </p>
               {backendHealth?.build?.commit_short && (
                 <p className="text-xs text-gray-400 dark:text-gray-500">
-                  Backend {backendHealth.version ? `v${backendHealth.version}` : ''}-{backendHealth.build.commit_short}
+                  Backend{' '}
+                  {backendHealth.version
+                    ? backendHealth.version === backendHealth.build.commit_short
+                      ? `v${backendHealth.version}`
+                      : `v${backendHealth.version}-${backendHealth.build.commit_short}`
+                    : `v${backendHealth.build.commit_short}`}
                   {backendHealth.build.branch ? ` (${backendHealth.build.branch})` : ''}
                 </p>
               )}
