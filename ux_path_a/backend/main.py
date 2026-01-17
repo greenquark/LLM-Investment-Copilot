@@ -160,13 +160,18 @@ async def startup_event():
     # Use absolute imports (works in both local and Railway with PYTHONPATH=/app)
     from ux_path_a.backend.backend_core.database import Base, engine
     
-    # Best-effort DB init: do not crash app startup if DB is temporarily unavailable.
-    # Railway Edge will return fallback 502 if the process exits/restarts.
-    try:
-        Base.metadata.create_all(bind=engine)
-        logger.info("Database tables created/verified")
-    except Exception as e:
-        logger.warning("Database init skipped/failed during startup: %s", e, exc_info=True)
+    # IMPORTANT: Keep startup as lightweight as possible so the process binds to $PORT quickly.
+    # DB init can hang if Postgres is unreachable; make it opt-in for Railway reliability.
+    run_db_startup = os.getenv("RUN_DB_STARTUP", "false").lower() in ("1", "true", "yes", "on")
+    if run_db_startup:
+        # Best-effort DB init: do not crash app startup if DB is temporarily unavailable.
+        try:
+            Base.metadata.create_all(bind=engine)
+            logger.info("Database tables created/verified")
+        except Exception as e:
+            logger.warning("Database init skipped/failed during startup: %s", e, exc_info=True)
+    else:
+        logger.info("Skipping DB init on startup (set RUN_DB_STARTUP=true to enable)")
     
     logger.info("UX Path A Backend starting up...")
     logger.info(f"CORS origins: {settings.CORS_ORIGINS}")
