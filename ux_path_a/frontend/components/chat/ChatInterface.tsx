@@ -78,7 +78,7 @@ export default function ChatInterface({ onLogout }: ChatInterfaceProps) {
     if (messages.length === 0) return
 
     const scrollToBottom = () => {
-      const top = el.scrollHeight
+      const top = Math.max(0, el.scrollHeight - el.clientHeight)
       if (mode === 'smooth') {
         el.scrollTo({ top, behavior: 'smooth' })
       } else {
@@ -227,7 +227,8 @@ export default function ChatInterface({ onLogout }: ChatInterfaceProps) {
       />
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
+      {/* min-h-0 is critical so the message pane becomes the scroll container (not the page/body) */}
+      <div className="flex-1 flex flex-col min-h-0">
         {/* Header */}
         <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
           <div className="flex items-center justify-between">
@@ -266,7 +267,7 @@ export default function ChatInterface({ onLogout }: ChatInterfaceProps) {
         {/* Messages */}
         <div
           ref={scrollContainerRef}
-          className="flex-1 overflow-y-auto"
+          className="flex-1 min-h-0 overflow-y-auto"
           onScroll={() => {
             const el = scrollContainerRef.current
             if (!el) return
