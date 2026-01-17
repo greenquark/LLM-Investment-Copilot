@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import datetime, date, timedelta
 from typing import AsyncIterator, List, Optional
 import logging
+import os
 
 from core.data.base import DataEngine
 from core.models.bar import Bar
@@ -68,6 +69,11 @@ class CachedDataEngine(DataEngine):
         """
         self._base_engine = base_engine
         self._cache_enabled = cache_enabled and cache_dir is not None and _CACHE_AVAILABLE
+        # By default, do NOT fail the whole request if a single "expected" trading day has no data.
+        # This happens frequently with free data sources (yfinance), delayed symbols, ETF quirks, etc.
+        # If you want strict behavior (raise when a trading day returns no bars), set:
+        #   STRICT_TRADING_DAY_DATA=true
+        self._strict_trading_day_data = os.getenv("STRICT_TRADING_DAY_DATA", "false").lower() in ("1", "true", "yes", "on")
         
         self._cache = None
         if self._cache_enabled and DataCache is not None:
@@ -650,11 +656,6 @@ class CachedDataEngine(DataEngine):
                         missing_dates = expected_dates - received_dates
                         
                         api_bars.extend(batch_bars)
-                        # #region agent log
-                        with open(r'c:\Users\JiantaoPan\OneDrive\Documents\Code\LLM-Investment-Copilot\.cursor\debug.log', 'a') as f:
-                            import json
-                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"cached_engine.py:583","message":"api_bars extended with batch_bars","data":{"api_bars_count":len(api_bars),"batch_bars_count":len(batch_bars),"batch_bars_dates":[str(b.timestamp.date()) for b in batch_bars[:5]]},"timestamp":int(__import__('time').time()*1000)}) + '\n')
-                        # #endregion
                         self._total_bars_from_api += len(batch_bars)
                         timestamps = [b.timestamp.strftime('%Y-%m-%d %H:%M:%S') for b in batch_bars]
                         logger.info(
@@ -694,13 +695,19 @@ class CachedDataEngine(DataEngine):
                                             try:
                                                 is_trading = is_trading_day(trading_day)
                                                 if is_trading:
-                                                    # Trading day with no data - this is an error
-                                                    error_msg = (
-                                                        f"[{self._last_data_source}] Failed to get data for trading day {trading_day.isoformat()}. "
-                                                        f"API call succeeded but returned no data. This may indicate a data availability issue."
+                                                    # Trading day with no data - strict mode can raise, otherwise warn + continue.
+                                                    msg = (
+                                                        f"[{self._last_data_source}] No data returned for trading day {trading_day.isoformat()}. "
+                                                        f"This may indicate a data availability issue."
                                                     )
-                                                    logger.error(error_msg)
-                                                    raise RuntimeError(error_msg)
+                                                    if self._strict_trading_day_data:
+                                                        logger.error(msg)
+                                                        raise RuntimeError(msg)
+                                                    logger.warning(msg)
+                                                    # Mark to avoid repeated fetch attempts for this day in this process.
+                                                    date_key = (symbol.upper(), timeframe, trading_day)
+                                                    self._no_data_ranges[date_key] = True
+                                                    continue
                                                 else:
                                                     # Not a trading day - mark as 'no data' (expected)
                                                     date_key = (symbol.upper(), timeframe, trading_day)
@@ -718,14 +725,18 @@ class CachedDataEngine(DataEngine):
                                                 logger.error(error_msg)
                                                 raise RuntimeError(error_msg) from e
                                         else:
-                                            # Trading calendar not available - can't determine if trading day
-                                            # For safety, raise error rather than marking as 'no data'
-                                            error_msg = (
-                                                f"[{self._last_data_source}] Failed to get data for {trading_day.isoformat()}. "
-                                                f"API call succeeded but returned no data. Trading calendar not available to verify if this is a trading day."
+                                            # Trading calendar not available - don't fail; treat as "no data" and continue.
+                                            msg = (
+                                                f"[{self._last_data_source}] No data returned for {trading_day.isoformat()}, "
+                                                f"and trading calendar is not available to verify trading day. Continuing without failing."
                                             )
-                                            logger.error(error_msg)
-                                            raise RuntimeError(error_msg)
+                                            if self._strict_trading_day_data:
+                                                logger.error(msg)
+                                                raise RuntimeError(msg)
+                                            logger.warning(msg)
+                                            date_key = (symbol.upper(), timeframe, trading_day)
+                                            self._no_data_ranges[date_key] = True
+                                            continue
                                 except Exception as e:
                                     # API error occurred - do NOT mark as 'no data', re-raise the error
                                     logger.error(format_api_error_message(
@@ -757,13 +768,17 @@ class CachedDataEngine(DataEngine):
                                         try:
                                             is_trading = is_trading_day(trading_day)
                                             if is_trading:
-                                                # Trading day with no data - this is an error
-                                                error_msg = (
-                                                    f"[{self._last_data_source}] Failed to get data for trading day {trading_day.isoformat()}. "
-                                                    f"API call succeeded but returned no data. This may indicate a data availability issue."
+                                                msg = (
+                                                    f"[{self._last_data_source}] No data returned for trading day {trading_day.isoformat()}. "
+                                                    f"This may indicate a data availability issue."
                                                 )
-                                                logger.error(error_msg)
-                                                raise RuntimeError(error_msg)
+                                                if self._strict_trading_day_data:
+                                                    logger.error(msg)
+                                                    raise RuntimeError(msg)
+                                                logger.warning(msg)
+                                                date_key = (symbol.upper(), timeframe, trading_day)
+                                                self._no_data_ranges[date_key] = True
+                                                continue
                                             else:
                                                 # Not a trading day - mark as 'no data' (expected)
                                                 date_key = (symbol.upper(), timeframe, trading_day)
@@ -778,14 +793,17 @@ class CachedDataEngine(DataEngine):
                                             logger.error(error_msg)
                                             raise RuntimeError(error_msg) from e
                                     else:
-                                        # Trading calendar not available - can't determine if trading day
-                                        # For safety, raise error rather than marking as 'no data'
-                                        error_msg = (
-                                            f"[{self._last_data_source}] Failed to get data for {trading_day.isoformat()}. "
-                                            f"API call succeeded but returned no data. Trading calendar not available to verify if this is a trading day."
+                                        msg = (
+                                            f"[{self._last_data_source}] No data returned for {trading_day.isoformat()}, "
+                                            f"and trading calendar is not available to verify trading day. Continuing without failing."
                                         )
-                                        logger.error(error_msg)
-                                        raise RuntimeError(error_msg)
+                                        if self._strict_trading_day_data:
+                                            logger.error(msg)
+                                            raise RuntimeError(msg)
+                                        logger.warning(msg)
+                                        date_key = (symbol.upper(), timeframe, trading_day)
+                                        self._no_data_ranges[date_key] = True
+                                        continue
                             except Exception as e:
                                 # API error occurred - do NOT mark as 'no data', re-raise the error
                                 logger.error(format_api_error_message(
@@ -815,13 +833,18 @@ class CachedDataEngine(DataEngine):
                                 try:
                                     is_trading = is_trading_day(trading_day)
                                     if is_trading:
-                                        # Trading day with no data - this is an error
-                                        error_msg = (
-                                            f"[{self._last_data_source}] Failed to get data for trading day {trading_day.isoformat()}. "
-                                            f"API call succeeded but returned no data. This may indicate a data availability issue."
+                                        msg = (
+                                            f"[{self._last_data_source}] No data returned for trading day {trading_day.isoformat()}. "
+                                            f"This may indicate a data availability issue."
                                         )
-                                        logger.error(error_msg)
-                                        raise RuntimeError(error_msg)
+                                        if self._strict_trading_day_data:
+                                            logger.error(msg)
+                                            raise RuntimeError(msg)
+                                        logger.warning(msg)
+                                        date_key = (symbol.upper(), timeframe, trading_day)
+                                        self._no_data_ranges[date_key] = True
+                                        # Return empty for a single-day request.
+                                        return []
                                     else:
                                         # Not a trading day - mark as 'no data' (expected)
                                         date_key = (symbol.upper(), timeframe, trading_day)
@@ -836,14 +859,15 @@ class CachedDataEngine(DataEngine):
                                     logger.error(error_msg)
                                     raise RuntimeError(error_msg) from e
                             else:
-                                # Trading calendar not available - can't determine if trading day
-                                # For safety, raise error rather than marking as 'no data'
-                                error_msg = (
-                                    f"[{self._last_data_source}] Failed to get data for {trading_day.isoformat()}. "
-                                    f"API call succeeded but returned no data. Trading calendar not available to verify if this is a trading day."
+                                msg = (
+                                    f"[{self._last_data_source}] No data returned for {trading_day.isoformat()}, "
+                                    f"and trading calendar is not available to verify trading day. Continuing without failing."
                                 )
-                                logger.error(error_msg)
-                                raise RuntimeError(error_msg)
+                                if self._strict_trading_day_data:
+                                    logger.error(msg)
+                                    raise RuntimeError(msg)
+                                logger.warning(msg)
+                                return []
                     except Exception as e:
                         # API error occurred - do NOT mark as 'no data', re-raise the error
                         logger.error(format_api_error_message(
@@ -884,17 +908,18 @@ class CachedDataEngine(DataEngine):
                             trading_days_in_range = _get_trading_days_cached(start_date, end_date)
                             
                             if trading_days_in_range:
-                                # We have trading days but got no data - this is an error
                                 trading_days_str = ", ".join([str(d) for d in trading_days_in_range[:5]])
                                 if len(trading_days_in_range) > 5:
                                     trading_days_str += f", ... ({len(trading_days_in_range)} total)"
-                                error_msg = (
-                                    f"[{self._last_data_source}] Failed to get data for trading day(s) in range {start_date} to {end_date}. "
-                                    f"API call succeeded but returned no data for {len(trading_days_in_range)} trading day(s): {trading_days_str}. "
-                                    f"This may indicate a data availability issue."
+                                msg = (
+                                    f"[{self._last_data_source}] No data returned for trading day(s) in range {start_date} to {end_date}: "
+                                    f"{trading_days_str}. This may indicate a data availability issue."
                                 )
-                                logger.error(error_msg)
-                                raise RuntimeError(error_msg)
+                                if self._strict_trading_day_data:
+                                    logger.error(msg)
+                                    raise RuntimeError(msg)
+                                logger.warning(msg)
+                                return []
                             else:
                                 # No trading days in range (all holidays/weekends) - mark as 'no data'
                                 logger.debug(f"[{self._last_data_source}] No trading days in range {start_date} to {end_date} (all holidays/weekends)")
