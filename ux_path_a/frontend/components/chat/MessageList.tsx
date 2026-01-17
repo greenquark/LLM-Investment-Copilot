@@ -14,9 +14,10 @@ interface Message {
 interface MessageListProps {
   messages: Message[]
   loading: boolean
+  showMessageMeta?: boolean
 }
 
-export default function MessageList({ messages, loading }: MessageListProps) {
+export default function MessageList({ messages, loading, showMessageMeta = false }: MessageListProps) {
   return (
     <div className="flex flex-col gap-4 p-6">
       {messages.length === 0 && (
@@ -32,7 +33,7 @@ export default function MessageList({ messages, loading }: MessageListProps) {
       )}
 
       {messages.map((message, index) => (
-        <MessageBubble key={index} message={message} />
+        <MessageBubble key={index} message={message} showMeta={showMessageMeta} />
       ))}
 
       {loading && (

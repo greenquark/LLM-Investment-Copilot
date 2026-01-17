@@ -28,6 +28,11 @@ export default function ChatInterface({ onLogout }: ChatInterfaceProps) {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [llmModel, setLlmModel] = useState<string | null>(null)
+  const [showMessageMeta, setShowMessageMeta] = useState(false)
+
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+  const isNearBottomRef = useRef(true)
+  const pendingScrollModeRef = useRef<'none' | 'instant' | 'smooth'>('instant')
 
   useEffect(() => {
     loadSessions()
@@ -57,11 +62,34 @@ export default function ChatInterface({ onLogout }: ChatInterfaceProps) {
 
   useEffect(() => {
     if (currentSessionId) {
+      // When switching sessions (especially legacy/history), jump to bottom after load.
+      pendingScrollModeRef.current = 'instant'
       loadMessages(currentSessionId)
     } else {
       setMessages([])
     }
   }, [currentSessionId])
+
+  useEffect(() => {
+    const mode = pendingScrollModeRef.current
+    if (mode === 'none') return
+    const el = scrollContainerRef.current
+    if (!el) return
+    if (messages.length === 0) return
+
+    const scrollToBottom = () => {
+      const top = el.scrollHeight
+      if (mode === 'smooth') {
+        el.scrollTo({ top, behavior: 'smooth' })
+      } else {
+        el.scrollTop = top
+      }
+      pendingScrollModeRef.current = 'none'
+    }
+
+    // Wait for DOM to paint the new messages before scrolling.
+    requestAnimationFrame(scrollToBottom)
+  }, [messages.length])
 
   const loadSessions = async () => {
     try {
@@ -69,6 +97,7 @@ export default function ChatInterface({ onLogout }: ChatInterfaceProps) {
       if (response.data) {
         setSessions(response.data)
         if (response.data.length > 0 && !currentSessionId) {
+          setShowMessageMeta(false) // legacy chat load
           setCurrentSessionId(response.data[0].id)
         }
       } else if (response.error) {
@@ -85,6 +114,8 @@ export default function ChatInterface({ onLogout }: ChatInterfaceProps) {
 
   const loadMessages = async (sessionId: string) => {
     try {
+      // On legacy chat load, ensure we end up at the bottom.
+      pendingScrollModeRef.current = 'instant'
       const response = await apiClient.getMessages(sessionId)
       if (response.data) {
         setMessages(response.data)
@@ -105,6 +136,7 @@ export default function ChatInterface({ onLogout }: ChatInterfaceProps) {
       setLoading(true)
       const response = await apiClient.createSession()
       if (response.data) {
+        setShowMessageMeta(true) // show meta/debug only for newly created chats
         await loadSessions()
         setCurrentSessionId(response.data.id)
         setMessages([]) // Clear messages for new session
@@ -137,6 +169,7 @@ export default function ChatInterface({ onLogout }: ChatInterfaceProps) {
       content,
       timestamp: new Date().toISOString(),
     }
+    if (isNearBottomRef.current) pendingScrollModeRef.current = 'smooth'
     setMessages(prev => [...prev, userMessage])
     setLoading(true)
 
@@ -145,17 +178,20 @@ export default function ChatInterface({ onLogout }: ChatInterfaceProps) {
       if (response.data) {
         // Update session ID if new session was created
         if (response.data.session_id !== currentSessionId) {
+          setShowMessageMeta(true) // new session created implicitly by backend
           setCurrentSessionId(response.data.session_id)
           await loadSessions()
         }
 
         // Add assistant message
+        if (isNearBottomRef.current) pendingScrollModeRef.current = 'smooth'
         setMessages(prev => [...prev, response.data!.message])
       } else if (response.error) {
         // Add error message - ensure it's a string
         const errorMsg = typeof response.error === 'string' 
           ? response.error 
           : JSON.stringify(response.error)
+        if (isNearBottomRef.current) pendingScrollModeRef.current = 'smooth'
         setMessages(prev => [...prev, {
           role: 'assistant',
           content: `Error: ${errorMsg}`,
@@ -166,6 +202,7 @@ export default function ChatInterface({ onLogout }: ChatInterfaceProps) {
       const errorMsg = error instanceof Error 
         ? error.message 
         : (typeof error === 'string' ? error : JSON.stringify(error))
+      if (isNearBottomRef.current) pendingScrollModeRef.current = 'smooth'
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: `Error: ${errorMsg}`,
@@ -182,7 +219,10 @@ export default function ChatInterface({ onLogout }: ChatInterfaceProps) {
       <SessionSidebar
         sessions={sessions}
         currentSessionId={currentSessionId}
-        onSelectSession={setCurrentSessionId}
+        onSelectSession={(id) => {
+          setShowMessageMeta(false) // legacy session view
+          setCurrentSessionId(id)
+        }}
         onNewSession={handleNewSession}
       />
 
@@ -224,8 +264,17 @@ export default function ChatInterface({ onLogout }: ChatInterfaceProps) {
         </header>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto">
-          <MessageList messages={messages} loading={loading} />
+        <div
+          ref={scrollContainerRef}
+          className="flex-1 overflow-y-auto"
+          onScroll={() => {
+            const el = scrollContainerRef.current
+            if (!el) return
+            const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+            isNearBottomRef.current = distanceFromBottom < 120
+          }}
+        >
+          <MessageList messages={messages} loading={loading} showMessageMeta={showMessageMeta} />
         </div>
 
         {/* Input */}

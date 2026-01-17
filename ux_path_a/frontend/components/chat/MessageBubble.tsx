@@ -3,6 +3,7 @@
 import React from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkBreaks from 'remark-breaks'
 import rehypeRaw from 'rehype-raw'
 import rehypeSanitize from 'rehype-sanitize'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -20,9 +21,10 @@ interface Message {
 
 interface MessageBubbleProps {
   message: Message
+  showMeta?: boolean
 }
 
-export default function MessageBubble({ message }: MessageBubbleProps) {
+export default function MessageBubble({ message, showMeta = false }: MessageBubbleProps) {
   const isUser = message.role === 'user'
   const [showThinking, setShowThinking] = React.useState(false)
 
@@ -48,7 +50,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
             {showThinking && (
               <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-900 rounded-md border border-gray-200 dark:border-gray-700">
                 <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
+                  remarkPlugins={[remarkGfm, remarkBreaks]}
                   rehypePlugins={[rehypeRaw, rehypeSanitize]}
                   className="prose prose-xs dark:prose-invert max-w-none text-gray-700 dark:text-gray-300"
                 >
@@ -60,9 +62,11 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
         )}
 
         {/* Main Content with Enhanced Markdown */}
-        <div className="prose prose-sm dark:prose-invert max-w-none 
-                        prose-headings:font-semibold
-                        prose-p:leading-relaxed
+        <div className="prose prose-sm dark:prose-invert max-w-none
+                        prose-headings:font-semibold prose-headings:tracking-tight
+                        prose-p:leading-relaxed prose-p:my-3
+                        prose-li:my-1
+                        prose-ul:pl-5 prose-ol:pl-5
                         prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline
                         prose-strong:font-semibold
                         prose-code:bg-gray-100 dark:prose-code:bg-gray-800 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-sm
@@ -73,7 +77,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
                         prose-th:border prose-th:border-gray-300 dark:prose-th:border-gray-700 prose-th:bg-gray-100 dark:prose-th:bg-gray-800 prose-th:p-2 prose-th:font-semibold prose-th:text-left
                         prose-td:border prose-td:border-gray-300 dark:prose-td:border-gray-700 prose-td:p-2">
           <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
+            remarkPlugins={[remarkGfm, remarkBreaks]}
             rehypePlugins={[rehypeRaw, rehypeSanitize]}
             components={{
               code({ node, inline, className, children, ...props }: any) {
@@ -163,7 +167,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
         </div>
 
         {/* Tool Calls Display */}
-        {message.tool_calls && (
+        {showMeta && message.tool_calls && (
           <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
             <details className="text-xs">
               <summary className="cursor-pointer text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 font-medium">
@@ -187,7 +191,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
         )}
 
         {/* Tool Results Display */}
-        {message.tool_results && message.tool_results.length > 0 && (
+        {showMeta && message.tool_results && message.tool_results.length > 0 && (
           <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
             <details className="text-xs">
               <summary className="cursor-pointer text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 font-medium">
@@ -211,9 +215,11 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
           </div>
         )}
 
-        <div className={`text-xs mt-2 ${isUser ? 'text-blue-100' : 'text-gray-500'}`}>
-          {new Date(message.timestamp).toLocaleTimeString()}
-        </div>
+        {showMeta && (
+          <div className={`text-xs mt-2 ${isUser ? 'text-blue-100' : 'text-gray-500'}`}>
+            {new Date(message.timestamp).toLocaleTimeString()}
+          </div>
+        )}
       </div>
     </div>
   )
