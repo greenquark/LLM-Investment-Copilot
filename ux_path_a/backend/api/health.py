@@ -6,10 +6,33 @@ from fastapi import APIRouter
 from datetime import datetime
 # Use absolute imports (works in both local and Railway with PYTHONPATH=/app)
 from ux_path_a.backend.backend_core.config import settings
-import json
 import os
 
 router = APIRouter()
+
+def _get_build_info() -> dict:
+    # Prefer Vercel vars if present (useful for parity), but support Railway/GitHub too.
+    sha = (
+        os.getenv("RAILWAY_GIT_COMMIT_SHA")
+        or os.getenv("VERCEL_GIT_COMMIT_SHA")
+        or os.getenv("GITHUB_SHA")
+        or os.getenv("COMMIT_SHA")
+        or ""
+    )
+    ref = (
+        os.getenv("RAILWAY_GIT_BRANCH")
+        or os.getenv("VERCEL_GIT_COMMIT_REF")
+        or os.getenv("GITHUB_REF_NAME")
+        or os.getenv("BRANCH")
+        or ""
+    )
+    build_time = os.getenv("BUILD_TIME") or os.getenv("VERCEL_BUILD_TIME") or ""
+    return {
+        "commit_sha": sha,
+        "commit_short": sha[:7] if sha else "",
+        "branch": ref,
+        "build_time": build_time,
+    }
 
 
 @router.get("")
@@ -19,7 +42,8 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
-        "version": "0.1.0",
+        "version": os.getenv("APP_VERSION", "0.1.0"),
+        "build": _get_build_info(),
     }
 
 
