@@ -23,7 +23,9 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 # Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# NOTE: bcrypt is notoriously finicky on Windows and has a 72-byte password limit.
+# For MVP (we don't verify passwords yet), use a stable built-in hash to keep local dev unblocked.
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
@@ -143,21 +145,10 @@ async def login(
         # Create a deterministic placeholder email for MVP; can be replaced by real registration later.
         email = f"{username}@mvp.local"
 
-        # bcrypt only uses the first 72 bytes of the password. Passlib will raise if longer.
-        # Since MVP accepts any credentials and we don't verify passwords yet, we just store
-        # a safe hash based on a truncated password.
-        raw_password = form_data.password or "mvp"
-        try:
-            raw_pw_bytes = raw_password.encode("utf-8")
-            if len(raw_pw_bytes) > 72:
-                raw_password = raw_pw_bytes[:72].decode("utf-8", errors="ignore") or "mvp"
-        except Exception:
-            raw_password = "mvp"
-
         user = User(
             email=email,
             username=username,
-            hashed_password=get_password_hash(raw_password),
+            hashed_password=get_password_hash(form_data.password or "mvp"),
         )
         db.add(user)
         try:
