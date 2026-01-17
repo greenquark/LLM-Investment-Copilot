@@ -23,6 +23,18 @@ export interface ApiResponse<T> {
   error?: string
 }
 
+export interface HealthResponse {
+  status: string
+  timestamp: string
+  version?: string
+  build?: {
+    commit_sha?: string
+    commit_short?: string
+    branch?: string
+    build_time?: string
+  }
+}
+
 class ApiClient {
   private baseUrl: string
   private token: string | null = null
@@ -50,6 +62,10 @@ class ApiClient {
     } catch {
       return false
     }
+  }
+
+  async getHealth() {
+    return this.request<HealthResponse>('/api/health')
   }
 
   setToken(token: string | null) {
