@@ -11,6 +11,7 @@ from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr
+import logging
 
 # Use absolute imports (works in both local and Railway with PYTHONPATH=/app)
 from ux_path_a.backend.backend_core.config import settings
@@ -19,6 +20,7 @@ from ux_path_a.backend.backend_core.models import User
 from sqlalchemy.orm import Session
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -152,6 +154,9 @@ async def login(
         except Exception as e:
             db.rollback()
             raise HTTPException(status_code=500, detail=f"Failed to create user: {e}")
+        logger.info("Created MVP user username=%s id=%s", user.username, user.id)
+    else:
+        logger.info("Using existing user username=%s id=%s", user.username, user.id)
     
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
