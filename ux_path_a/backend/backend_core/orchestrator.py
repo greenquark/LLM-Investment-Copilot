@@ -11,6 +11,8 @@ from datetime import datetime
 import logging
 from openai import OpenAI
 from openai import APIError
+import json
+import ast
 
 # Use absolute imports (works in both local and Railway with PYTHONPATH=/app)
 from ux_path_a.backend.backend_core.config import settings
@@ -66,6 +68,112 @@ class ChatOrchestrator:
         register_web_search_tools(self.tool_registry)
         
         logger.info(f"Registered {len(self.tool_registry.get_function_definitions())} tools")
+
+    @staticmethod
+    def _message_requests_chart(message: str) -> bool:
+        m = (message or "").lower()
+        return any(k in m for k in ["chart", "graph", "plot", "visualize", "visualisation", "candlestick"])
+
+    @staticmethod
+    def _parse_tool_result_payload(payload: str) -> Optional[dict]:
+        """
+        Tool results should be JSON strings, but older deployments may have Python repr strings.
+        Try JSON first, then fall back to ast.literal_eval.
+        """
+        if not payload:
+            return None
+        try:
+            obj = json.loads(payload)
+            return obj if isinstance(obj, dict) else None
+        except Exception:
+            pass
+        try:
+            obj = ast.literal_eval(payload)
+            return obj if isinstance(obj, dict) else None
+        except Exception:
+            return None
+
+    @classmethod
+    def _build_candlestick_chart_block(cls, bars_payload: dict) -> Optional[str]:
+        bars = bars_payload.get("bars")
+        if not isinstance(bars, list) or not bars:
+            return None
+
+        symbol = bars_payload.get("symbol") or "Symbol"
+        timeframe = (bars_payload.get("timeframe") or "").upper()
+
+        x = []
+        o = []
+        h = []
+        l = []
+        c = []
+        for b in bars:
+            if not isinstance(b, dict):
+                continue
+            ts = b.get("timestamp")
+            if not isinstance(ts, str):
+                continue
+            # Prefer date-only for daily bars
+            x.append(ts.split("T")[0] if ("1D" in timeframe or timeframe in ("D", "1D")) else ts)
+            o.append(b.get("open"))
+            h.append(b.get("high"))
+            l.append(b.get("low"))
+            c.append(b.get("close"))
+
+        if not x:
+            return None
+
+        chart = {
+            "type": "candlestick",
+            "data": [
+                {
+                    "x": x,
+                    "open": o,
+                    "high": h,
+                    "low": l,
+                    "close": c,
+                    "name": str(symbol),
+                }
+            ],
+            "layout": {
+                "title": f"{symbol} Price Chart ({timeframe or 'bars'})",
+                "xaxis": {"title": "Date"},
+                "yaxis": {"title": "Price ($)"},
+                "height": 450,
+                "hovermode": "x unified",
+            },
+        }
+        return "```chart\n" + json.dumps(chart, indent=2) + "\n```"
+
+    @classmethod
+    def _maybe_inject_chart(cls, user_message: str, content: Optional[str], tool_results: Optional[List[Dict[str, Any]]]) -> str:
+        """
+        Ensure feature parity: if user asked for a chart and we have get_bars output,
+        inject a valid ```chart block even if the LLM forgets.
+        """
+        base = content or ""
+        if "```chart" in base:
+            return base
+        if not cls._message_requests_chart(user_message):
+            return base
+        if not tool_results:
+            return base
+
+        # Find get_bars output
+        for tr in tool_results:
+            if not isinstance(tr, dict):
+                continue
+            if tr.get("name") != "get_bars":
+                continue
+            payload = cls._parse_tool_result_payload(tr.get("result") if isinstance(tr.get("result"), str) else "")
+            if not payload or payload.get("error"):
+                return base
+            block = cls._build_candlestick_chart_block(payload)
+            if not block:
+                return base
+            return (base + ("\n\n" if base else "") + block).strip()
+
+        return base
     
     async def process_message(
         self,
@@ -350,6 +458,9 @@ class ChatOrchestrator:
                 total_prompt_tokens = response.usage.prompt_tokens
                 total_completion_tokens = response.usage.completion_tokens
                 total_tokens = response.usage.total_tokens
+
+            # Ensure chart rendering parity (frontend requires a ```chart JSON block)
+            content = self._maybe_inject_chart(message, content, tool_results)
             
             # Serialize tool_calls to ensure they're JSON serializable
             tool_calls_serialized = None
@@ -487,10 +598,16 @@ class ChatOrchestrator:
                     arguments=tool_args,
                     session_id=session_id,
                 )
-                
+
+                # Ensure tool results are valid JSON strings (helps LLM + keeps parity across models)
+                if isinstance(result, str):
+                    result_str = result
+                else:
+                    result_str = json.dumps(result, default=str)
+
                 results.append({
                     "name": tool_name,
-                    "result": str(result),
+                    "result": result_str,
                     "tool_call_id": tool_call_id,
                 })
                 
