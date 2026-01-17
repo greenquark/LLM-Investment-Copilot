@@ -6,6 +6,7 @@ import ChatInput from './ChatInput'
 import SessionSidebar from './SessionSidebar'
 import { apiClient } from '@/lib/api'
 import type { HealthResponse } from '@/lib/api'
+import Link from 'next/link'
 
 interface ChatInterfaceProps {
   onLogout?: () => void
@@ -257,6 +258,16 @@ export default function ChatInterface({ onLogout }: ChatInterfaceProps) {
                   {backendHealth.build.branch ? ` (${backendHealth.build.branch})` : ''}
                 </p>
               )}
+              <p className="text-xs mt-1">
+                <Link
+                  href="/disclaimer"
+                  className="text-blue-600 dark:text-blue-400 hover:underline"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Disclaimer
+                </Link>
+              </p>
             </div>
             <div className="flex items-center gap-4">
               {llmModel && (

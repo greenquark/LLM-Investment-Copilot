@@ -1,6 +1,7 @@
 'use client'
 
 import MessageBubble from './MessageBubble'
+import Link from 'next/link'
 
 interface Message {
   role: string
@@ -27,7 +28,9 @@ export default function MessageList({ messages, loading, showMessageMeta = false
             Ask me about market analysis, trends, or technical indicators.
           </p>
           <p className="text-xs mt-4 text-gray-400">
-            This tool is for educational purposes only. Not financial advice.
+            <Link href="/disclaimer" className="text-blue-600 dark:text-blue-400 hover:underline" target="_blank" rel="noopener noreferrer">
+              Disclaimer
+            </Link>
           </p>
         </div>
       )}
