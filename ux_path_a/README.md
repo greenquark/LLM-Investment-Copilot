@@ -16,7 +16,8 @@ This is the UX Path A implementation - a standalone ChatGPT-style web applicatio
 cd ux_path_a/backend
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
+pip install -U uv
+uv sync --extra ux_path_a_backend --extra data
 uvicorn main:app --reload
 ```
 

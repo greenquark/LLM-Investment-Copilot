@@ -12,7 +12,9 @@ FastAPI backend for the Smart Trading Copilot web chat application.
 
 2. **Install dependencies:**
    ```bash
-   pip install -r requirements.txt
+   pip install -U uv
+   # Install only what the UX Path A backend needs (plus data/caching deps)
+   uv sync --extra ux_path_a_backend --extra data
    ```
 
 3. **Configure environment:**
