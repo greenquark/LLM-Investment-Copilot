@@ -239,6 +239,12 @@ export default function ChatInterface({ onLogout }: ChatInterfaceProps) {
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 Educational market analysis assistant
               </p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">
+                Build{' '}
+                {process.env.NEXT_PUBLIC_APP_VERSION ? `v${process.env.NEXT_PUBLIC_APP_VERSION}` : ''}
+                {process.env.NEXT_PUBLIC_BUILD_SHA ? `-${process.env.NEXT_PUBLIC_BUILD_SHA.slice(0, 7)}` : ''}
+                {process.env.NEXT_PUBLIC_BUILD_REF ? ` (${process.env.NEXT_PUBLIC_BUILD_REF})` : ''}
+              </p>
             </div>
             <div className="flex items-center gap-4">
               {llmModel && (
