@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/hooks/useAuth'
+import { apiClient } from '@/lib/api'
 
 interface AuthModalProps {
   isOpen: boolean
@@ -30,18 +31,14 @@ export default function AuthModal({ isOpen, onClose, onLoginSuccess, login: logi
     const timeoutId = setTimeout(() => controller.abort(), 6000)
 
     try {
-      const response = await fetch('/api/health', {
-        method: 'GET',
-        cache: 'no-store',
-        signal: controller.signal,
-      })
-
-      if (!response.ok) {
+      // In local dev there is no Vercel rewrite, so hitting '/api/health' on Next.js returns 404.
+      // Use the ApiClient base URL logic (defaults to http://localhost:8000 in dev, relative in prod).
+      const ok = await apiClient.testConnection()
+      if (!ok) {
         setBackendStatus('error')
-        setBackendMessage(`Backend healthcheck failed (${response.status}).`)
+        setBackendMessage('Backend healthcheck failed.')
         return
       }
-
       setBackendStatus('ok')
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Network error'
