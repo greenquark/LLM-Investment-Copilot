@@ -23,42 +23,43 @@ python -c "import main; print('✓ main module imported successfully')" || {
     }
 }
 
-# Create base tables first (if they don't exist)
-echo "Creating base database tables..." >&2
-set +e
-python << 'PYTHON_SCRIPT' 2>&1
-import sys
-import traceback
+# IMPORTANT: Do not block server startup on DB operations.
+# Railway Edge will return fallback 502 if the process hasn't bound to $PORT yet.
+# If you want to run DB init/migrations, enable them explicitly via env vars.
 
+RUN_DB_INIT="${RUN_DB_INIT:-false}"
+if [ "$RUN_DB_INIT" = "true" ] || [ "$RUN_DB_INIT" = "1" ]; then
+    echo "Creating base database tables (best-effort)..." >&2
+    set +e
+    python << 'PYTHON_SCRIPT' 2>&1
+import traceback
 try:
-    print("Attempting to import database modules...")
-    # Use absolute imports (works in both local and Railway with PYTHONPATH=/app)
     from ux_path_a.backend.backend_core.database import Base, engine
     from ux_path_a.backend.backend_core.models import User, ChatSession, ChatMessage, AuditLog, TokenBudget
-    print("✓ Imported using absolute imports")
-    print("Creating tables from models (best-effort)...")
     Base.metadata.create_all(bind=engine)
     print("✓ Base tables created/verified")
 except Exception as e:
-    # Best-effort only: never block server startup on DB/table creation.
-    # Health endpoints should still be able to come up even if DB is temporarily unavailable.
     print(f"WARNING: Base table creation skipped/failed: {e}")
     traceback.print_exc()
-    sys.exit(0)
 PYTHON_SCRIPT
-status=$?
-set -e
-
-if [ $status -ne 0 ]; then
-    echo "WARNING: Base table creation returned non-zero ($status), but continuing..." >&2
+    status=$?
+    set -e
+    if [ $status -ne 0 ]; then
+        echo "WARNING: Base table creation returned non-zero ($status), continuing..." >&2
+    fi
+else
+    echo "Skipping DB init (set RUN_DB_INIT=true to enable)..." >&2
 fi
 
-# Run database migrations (don't fail if migrations error)
-echo "Running database migrations..." >&2
-python -m alembic upgrade head 2>&1 || {
-    echo "WARNING: Migration failed, but continuing to start server..." >&2
-    echo "You may need to run migrations manually later" >&2
-}
+RUN_MIGRATIONS="${RUN_MIGRATIONS:-false}"
+if [ "$RUN_MIGRATIONS" = "true" ] || [ "$RUN_MIGRATIONS" = "1" ]; then
+    echo "Running database migrations (best-effort)..." >&2
+    python -m alembic upgrade head 2>&1 || {
+        echo "WARNING: Migration failed, continuing to start server..." >&2
+    }
+else
+    echo "Skipping migrations (set RUN_MIGRATIONS=true to enable)..." >&2
+fi
 
 # Start the server (this must succeed)
 echo "Starting server on port ${PORT:-8000}..." >&2
