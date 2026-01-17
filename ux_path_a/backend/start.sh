@@ -7,17 +7,25 @@ export PYTHONUNBUFFERED=1
 # Redirect all output to stderr so Railway captures it
 exec 1>&2
 
+VENV_PY="/app/.venv/bin/python"
+if [ -x "$VENV_PY" ]; then
+    PYTHON_BIN="$VENV_PY"
+else
+    PYTHON_BIN="python"
+fi
+
 echo "=== Starting container ===" >&2
 echo "Working directory: $(pwd)" >&2
 echo "Python path: $PYTHONPATH" >&2
 echo "PORT: ${PORT:-8000}" >&2
-echo "Python version: $(python --version)" >&2
+echo "Python version: $($PYTHON_BIN --version)" >&2
+echo "Python executable: $($PYTHON_BIN -c 'import sys; print(sys.executable)')" >&2
 
 # Test if we can import main module
 echo "Testing imports..." >&2
-python -c "import main; print('✓ main module imported successfully')" || {
+"$PYTHON_BIN" -c "import main; print('✓ main module imported successfully')" || {
     echo "✗ Failed to import main module" >&2
-    python -c "import sys; sys.path.insert(0, '.'); import main" 2>&1 || {
+    "$PYTHON_BIN" -c "import sys; sys.path.insert(0, '.'); import main" 2>&1 || {
         echo "✗ Import failed even with path adjustment" >&2
         exit 1
     }
@@ -32,7 +40,7 @@ RUN_MIGRATIONS="${RUN_MIGRATIONS:-true}"
 run_db_tasks() {
     if [ "$RUN_DB_INIT" = "true" ] || [ "$RUN_DB_INIT" = "1" ]; then
         echo "Creating base database tables (best-effort)..." >&2
-        python << 'PYTHON_SCRIPT' 2>&1
+        "$PYTHON_BIN" << 'PYTHON_SCRIPT' 2>&1
 import traceback
 try:
     from ux_path_a.backend.backend_core.database import Base, engine
@@ -49,7 +57,7 @@ PYTHON_SCRIPT
 
     if [ "$RUN_MIGRATIONS" = "true" ] || [ "$RUN_MIGRATIONS" = "1" ]; then
         echo "Running database migrations (best-effort)..." >&2
-        python -m alembic upgrade head 2>&1 || {
+        "$PYTHON_BIN" -m alembic upgrade head 2>&1 || {
             echo "WARNING: Migration failed (best-effort)..." >&2
         }
     else
@@ -62,4 +70,4 @@ run_db_tasks &
 
 # Start the server (this must succeed)
 echo "Starting server on port ${PORT:-8000}..." >&2
-exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --log-level info
+exec "$PYTHON_BIN" -m uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --log-level info
