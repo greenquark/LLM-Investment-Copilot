@@ -14,6 +14,9 @@ from pydantic import BaseModel, EmailStr
 
 # Use absolute imports (works in both local and Railway with PYTHONPATH=/app)
 from ux_path_a.backend.backend_core.config import settings
+from ux_path_a.backend.backend_core.database import get_db
+from ux_path_a.backend.backend_core.models import User
+from sqlalchemy.orm import Session
 
 router = APIRouter()
 
@@ -90,10 +93,15 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        user_id: int = payload.get("sub")
-        if user_id is None:
+        sub = payload.get("sub")
+        if sub is None:
             raise credentials_exception
-        token_data = TokenData(user_id=user_id)
+        try:
+            user_id = int(sub)
+        except Exception:
+            raise credentials_exception
+        username = payload.get("username")
+        token_data = TokenData(user_id=user_id, username=username)
     except JWTError:
         raise credentials_exception
     
@@ -117,15 +125,37 @@ async def register(user: UserCreate):
 
 
 @router.post("/token", response_model=Token)
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+async def login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
     """Login and get access token."""
-    # TODO: Verify user credentials from database
-    # For MVP, accept any credentials
-    user_id = 1  # Placeholder
+    # MVP behavior: accept any credentials, but back it with a real DB user row
+    # so FK constraints (chat_sessions.user_id -> users.id) are satisfied.
+    username = (form_data.username or "").strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="Username is required")
+
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        # Create a deterministic placeholder email for MVP; can be replaced by real registration later.
+        email = f"{username}@mvp.local"
+        user = User(
+            email=email,
+            username=username,
+            hashed_password=get_password_hash(form_data.password or "mvp"),
+        )
+        db.add(user)
+        try:
+            db.commit()
+            db.refresh(user)
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"Failed to create user: {e}")
     
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": str(user_id)},
+        data={"sub": str(user.id), "username": user.username},
         expires_delta=access_token_expires,
     )
     

@@ -81,9 +81,11 @@ async def create_session(
     # Create session in database
     db_session = ChatSession(
         id=session_id,
-        user_id=current_user.user_id or 1,  # TODO: Get from token
+        user_id=current_user.user_id if current_user.user_id is not None else None,
         title=session.title or f"Chat {now.strftime('%Y-%m-%d %H:%M')}",
     )
+    if db_session.user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid auth token: missing user_id")
     db.add(db_session)
     db.commit()
     db.refresh(db_session)
