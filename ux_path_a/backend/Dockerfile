@@ -13,6 +13,10 @@ RUN apt-get update && apt-get install -y \
 # Install uv (fast, reproducible dependency management)
 RUN pip install --no-cache-dir -U uv
 
+# Install into the system interpreter (NOT a venv) so our runtime `python`/`uvicorn`
+# can import the installed packages.
+ENV UV_SYSTEM_PYTHON=1
+
 # Copy dependency manifests first for better caching
 COPY pyproject.toml /app/pyproject.toml
 COPY uv.lock /app/uv.lock
@@ -20,7 +24,7 @@ COPY uv.lock /app/uv.lock
 # Install ONLY what the Railway backend needs, from the lockfile (reproducible).
 # - ux_path_a_backend: FastAPI service deps
 # - data: pandas/pyarrow/yfinance/exchange-calendars, etc. used by core.data/tools
-RUN cd /app && uv sync --frozen --no-dev --extra ux_path_a_backend --extra data
+RUN cd /app && uv sync --system --frozen --no-dev --extra ux_path_a_backend --extra data
 
 # Copy entire repository (so project root's core/ is available)
 # This allows access to core/models/, core/data/, core/strategy/, etc.
