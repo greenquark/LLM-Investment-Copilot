@@ -17,6 +17,7 @@ from ux_path_a.backend.backend_core.orchestrator import ChatOrchestrator
 from ux_path_a.backend.backend_core.database import get_db
 from ux_path_a.backend.backend_core.guardrails import TokenBudgetTracker, SafetyControls
 from ux_path_a.backend.backend_core.models import ChatSession, ChatMessage as DBChatMessage, AuditLog
+from ux_path_a.backend.backend_core.config import settings
 from sqlalchemy.orm import Session
 
 router = APIRouter()
@@ -128,6 +129,17 @@ async def send_message(
     db: Session = Depends(get_db),
 ):
     """Send a chat message and get LLM response."""
+    # Fail fast with a clear error if LLM is not configured.
+    # Otherwise the OpenAI SDK raises deep inside the orchestrator and becomes a generic 500.
+    if not settings.OPENAI_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "LLM not configured",
+                "message": "Missing OPENAI_API_KEY on server. Set it in Railway Variables and redeploy.",
+            },
+        )
+
     # Get or create session
     session_id = message.session_id
     if not session_id:
@@ -297,7 +309,14 @@ async def send_message(
         )
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error processing message: {str(e)}")
+        logger.error("Error processing chat message: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "Error processing message",
+                "message": str(e) or "Unknown error",
+            },
+        )
 
 
 @router.get("/sessions/{session_id}/messages", response_model=List[Message])
