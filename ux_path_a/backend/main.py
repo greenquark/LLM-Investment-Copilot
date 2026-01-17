@@ -84,9 +84,13 @@ async def log_requests(request, call_next):
     
     
     start_time = time.time()
+    railway_request_id = request.headers.get("x-railway-request-id") or request.headers.get("x-request-id")
     
     # Log request
-    logger.info("REQUEST %s %s", request.method, request.url.path)
+    if railway_request_id:
+        logger.info("REQUEST %s %s rid=%s", request.method, request.url.path, railway_request_id)
+    else:
+        logger.info("REQUEST %s %s", request.method, request.url.path)
     if settings.DEBUG:
         logger.debug(f"   Query params: {dict(request.query_params)}")
         # Log headers (but mask sensitive ones)
@@ -105,12 +109,17 @@ async def log_requests(request, call_next):
         response = await call_next(request)
         
     except Exception as e:
-        logger.error(f"Error processing request: {e}", exc_info=True)
+        logger.error("Error processing request rid=%s: %s", railway_request_id, e, exc_info=True)
         raise
     
     # Log response
     process_time = time.time() - start_time
-    logger.info("RESPONSE %s %s - %s (%.3fs)", request.method, request.url.path, response.status_code, process_time)
+    if railway_request_id and "x-request-id" not in response.headers:
+        response.headers["x-request-id"] = railway_request_id
+    if railway_request_id:
+        logger.info("RESPONSE %s %s - %s (%.3fs) rid=%s", request.method, request.url.path, response.status_code, process_time, railway_request_id)
+    else:
+        logger.info("RESPONSE %s %s - %s (%.3fs)", request.method, request.url.path, response.status_code, process_time)
     return response
 
 

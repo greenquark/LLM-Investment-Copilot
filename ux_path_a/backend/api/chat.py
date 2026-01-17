@@ -4,7 +4,7 @@ Chat API endpoints.
 Handles chat messages, session management, and LLM orchestration.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime, timezone
@@ -124,11 +124,14 @@ async def list_sessions(
 
 @router.post("/messages", response_model=ChatResponse)
 async def send_message(
+    request: Request,
     message: ChatMessageRequest,
     current_user: TokenData = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Send a chat message and get LLM response."""
+    railway_request_id = request.headers.get("x-railway-request-id") or request.headers.get("x-request-id")
+
     # Fail fast with a clear error if LLM is not configured.
     # Otherwise the OpenAI SDK raises deep inside the orchestrator and becomes a generic 500.
     if not settings.OPENAI_API_KEY:
@@ -137,6 +140,7 @@ async def send_message(
             detail={
                 "error": "LLM not configured",
                 "message": "Missing OPENAI_API_KEY on server. Set it in Railway Variables and redeploy.",
+                "request_id": railway_request_id,
             },
         )
 
@@ -174,16 +178,29 @@ async def send_message(
     ]
     
     # Add user message to database
-    user_db_msg = DBChatMessage(
-        session_id=session_id,
-        role="user",
-        content=message.content,
-    )
-    db.add(user_db_msg)
-    db.commit()
+    try:
+        user_db_msg = DBChatMessage(
+            session_id=session_id,
+            role="user",
+            content=message.content,
+        )
+        db.add(user_db_msg)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error("DB write failed rid=%s: %s", railway_request_id, e, exc_info=True)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "Database error",
+                "message": str(e) or "Failed to write chat message",
+                "request_id": railway_request_id,
+            },
+        )
     
     # Get LLM response via orchestrator
     try:
+        logger.info("Chat orchestration start rid=%s session_id=%s", railway_request_id, session_id)
         response = await orchestrator.process_message(
             message=message.content,
             session_id=session_id,
@@ -309,12 +326,49 @@ async def send_message(
         )
     except Exception as e:
         db.rollback()
-        logger.error("Error processing chat message: %s", e, exc_info=True)
+        # Categorize common upstream (OpenAI) errors so the frontend can show actionable messages.
+        error_cls = e.__class__.__name__
+        error_msg = str(e) or "Unknown error"
+        logger.error("Error processing chat message rid=%s (%s): %s", railway_request_id, error_cls, e, exc_info=True)
+
+        # Best-effort classification without relying on specific OpenAI SDK exception classes.
+        # (OpenAI SDK exception names vary by version.)
+        lowered = f"{error_cls} {error_msg}".lower()
+        if "authentication" in lowered or "invalid api key" in lowered or "api key" in lowered and "invalid" in lowered:
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "error": "OpenAI authentication failed",
+                    "message": error_msg,
+                    "request_id": railway_request_id,
+                },
+            )
+        if "rate limit" in lowered or "429" in lowered:
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "error": "OpenAI rate limited",
+                    "message": error_msg,
+                    "request_id": railway_request_id,
+                },
+            )
+        if "model" in lowered and ("not found" in lowered or "does not exist" in lowered):
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "error": "OpenAI model unavailable",
+                    "message": error_msg,
+                    "request_id": railway_request_id,
+                },
+            )
+
         raise HTTPException(
             status_code=500,
             detail={
                 "error": "Error processing message",
-                "message": str(e) or "Unknown error",
+                "message": error_msg,
+                "exception": error_cls,
+                "request_id": railway_request_id,
             },
         )
 
