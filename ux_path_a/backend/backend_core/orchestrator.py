@@ -125,6 +125,24 @@ class ChatOrchestrator:
         )
 
     @staticmethod
+    def _message_requests_quick_quote(message: str) -> bool:
+        m = (message or "").lower()
+        return any(
+            k in m
+            for k in [
+                "price",
+                "quote",
+                "latest",
+                "current",
+                "today",
+                "yesterday",
+                "last friday",
+                "daily figures",
+                "daily quote",
+            ]
+        )
+
+    @staticmethod
     def _format_money(x: Any) -> str:
         try:
             f = float(x)
@@ -138,6 +156,122 @@ class ChatOrchestrator:
             return f"{int(float(x)):,}"
         except Exception:
             return str(x)
+
+    @staticmethod
+    def _strip_source_json_blocks(text: str) -> str:
+        """
+        Remove raw "Source (get_bars output): { ... }" dumps from the model response.
+        We keep the human-readable summary and avoid showing raw JSON to users.
+        """
+        if not text:
+            return text
+
+        lines = text.splitlines()
+        out: List[str] = []
+        skipping = False
+        brace_balance = 0
+        started_json = False
+
+        for line in lines:
+            s = line.strip()
+
+            # Start skipping if we see a "Source ... get_bars" marker
+            if not skipping and s.lower().startswith("source") and "get_bars" in s.lower():
+                skipping = True
+                brace_balance = 0
+                started_json = False
+                continue
+
+            if skipping:
+                # Skip optional label lines like "Source (get_bars output):"
+                # Then skip a raw JSON object block.
+                if "{" in line:
+                    started_json = True
+                    brace_balance += line.count("{")
+                if "}" in line:
+                    brace_balance -= line.count("}")
+
+                # If we never saw JSON, keep skipping until a blank line, then stop.
+                if not started_json and s == "":
+                    skipping = False
+                # If we saw JSON and the braces are balanced, stop skipping after this line.
+                elif started_json and brace_balance <= 0:
+                    skipping = False
+                continue
+
+            out.append(line)
+
+        return "\n".join(out).strip()
+
+    @classmethod
+    def _build_symbol_quote_markdown(cls, payload: dict) -> Optional[str]:
+        if not isinstance(payload, dict) or payload.get("error"):
+            return None
+
+        symbol = str(payload.get("symbol") or "Symbol")
+        current_price = payload.get("current_price")
+        ts = payload.get("timestamp")
+
+        md = []
+        md.append(f"I fetched the latest {symbol} quote via the data tool. All values below are taken directly from the tool output.")
+        md.append("")
+        md.append("Quick quote (tool output)")
+        md.append("")
+        md.append(f"Symbol: {symbol}")
+        md.append(f"Current price: {current_price} (tool) - timestamp: {ts} (tool)")
+        md.append(f"Open: {payload.get('open')} (tool)")
+        md.append(f"High: {payload.get('high')} (tool)")
+        md.append(f"Low: {payload.get('low')} (tool)")
+        md.append(f"Volume (today): {cls._format_int(payload.get('volume'))} (tool)")
+
+        tool_fields = []
+        for k in ["price_change", "price_change_pct", "bars_count"]:
+            if k in payload:
+                tool_fields.append(f"{k} = {payload.get(k)}")
+        if tool_fields:
+            md.append(f"Tool fields: {', '.join(tool_fields)} (all from the tool)")
+
+        return "\n".join(md).strip()
+
+    @classmethod
+    def _maybe_inject_symbol_quote(
+        cls,
+        user_message: str,
+        content: Optional[str],
+        tool_results: Optional[List[Dict[str, Any]]],
+    ) -> str:
+        base = content or ""
+        if not cls._message_requests_quick_quote(user_message):
+            return base
+        if not tool_results:
+            return base
+        if "Quick quote (tool output)" in base:
+            return base
+        # Don't override chart responses
+        if "```chart" in base:
+            return base
+
+        for tr in tool_results:
+            if not isinstance(tr, dict) or tr.get("name") != "get_symbol_data":
+                continue
+            payload = cls._parse_tool_result_payload(tr.get("result") if isinstance(tr.get("result"), str) else "")
+            quote_md = cls._build_symbol_quote_markdown(payload or {})
+            if not quote_md:
+                continue
+
+            # If the model is dumping raw JSON or appending boilerplate, replace with the standard quote.
+            looks_messy = (
+                ("Source" in base and "get_bars" in base)
+                or ("{" in base and "}" in base)
+                or ("disclaimer" in base.lower())
+                or ("not financial advice" in base.lower())
+            )
+            if looks_messy or not base.strip():
+                return quote_md
+
+            return (base + ("\n\n" if base else "") + quote_md).strip()
+
+        return base
 
     @classmethod
     def _build_daily_bar_quote_markdown(cls, payload: dict, requested_date: Optional[str] = None) -> Optional[str]:
@@ -598,6 +732,10 @@ class ChatOrchestrator:
 
             # Ensure chart rendering parity (frontend requires a ```chart JSON block)
             content = self._maybe_inject_chart(message, content, tool_results)
+            # For quote intents, prefer a stable "Quick quote (tool output)" format when get_symbol_data is available.
+            content = self._maybe_inject_symbol_quote(message, content, tool_results)
+            # Remove raw Source(get_bars) JSON dumps if the model includes them
+            content = self._strip_source_json_blocks(content or "")
             # Keep disclaimers as a link (and remove per-message boilerplate)
             content = self._normalize_disclaimer_and_risk(content or "")
             
