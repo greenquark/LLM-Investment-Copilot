@@ -42,6 +42,14 @@ export default function MessageBubble({ message, showMeta = false }: MessageBubb
   const isUser = message.role === 'user'
   const [showThinking, setShowThinking] = React.useState(false)
 
+  const toolNames = React.useMemo(() => {
+    if (!message.tool_calls) return []
+    const calls = Array.isArray(message.tool_calls) ? message.tool_calls : [message.tool_calls]
+    return calls
+      .map((t: any) => t?.name || t?.function?.name || t?.id)
+      .filter(Boolean)
+  }, [message.tool_calls])
+
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div
@@ -180,52 +188,42 @@ export default function MessageBubble({ message, showMeta = false }: MessageBubb
           </ReactMarkdown>
         </div>
 
-        {/* Tool Calls Display */}
-        {showMeta && message.tool_calls && (
-          <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-            <details className="text-xs">
-              <summary className="cursor-pointer text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 font-medium">
-                Tools used ({Array.isArray(message.tool_calls) ? message.tool_calls.length : 1})
-              </summary>
-              <div className="mt-2 space-y-1">
-                {Array.isArray(message.tool_calls) ? (
-                  message.tool_calls.map((tool: any, idx: number) => (
-                    <div key={idx} className="text-gray-500 dark:text-gray-400 pl-2">
-                      • {tool.name || tool.function?.name || tool.id || 'Unknown tool'}
-                    </div>
-                  ))
-                ) : (
-                  <div className="text-gray-500 dark:text-gray-400 pl-2">
-                    • {message.tool_calls.name || 'Tool used'}
-                  </div>
-                )}
-              </div>
-            </details>
-          </div>
-        )}
-
-        {/* Tool Results Display */}
-        {showMeta && message.tool_results && message.tool_results.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-            <details className="text-xs">
-              <summary className="cursor-pointer text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 font-medium">
-                Tool Results ({message.tool_results.length})
-              </summary>
-              <div className="mt-2 space-y-2">
-                {message.tool_results.map((result: any, idx: number) => (
-                  <div key={idx} className="bg-gray-50 dark:bg-gray-900 p-2 rounded border border-gray-200 dark:border-gray-700">
-                    <div className="font-semibold text-gray-700 dark:text-gray-300 mb-1">
-                      {result.name || 'Result'}
-                    </div>
-                    <pre className="text-xs mt-1 overflow-x-auto text-gray-600 dark:text-gray-400 whitespace-pre-wrap">
-                      {typeof result.result === 'string' 
-                        ? result.result 
-                        : JSON.stringify(result.result, null, 2)}
-                    </pre>
-                  </div>
+        {/* Tool meta (compact) */}
+        {showMeta && !isUser && (toolNames.length > 0 || (message.tool_results && message.tool_results.length > 0)) && (
+          <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 space-y-2 text-xs">
+            {toolNames.length > 0 && (
+              <div className="bg-gray-50 dark:bg-gray-900 px-2 py-1 rounded border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300">
+                <span className="font-semibold">Tool used:</span>{' '}
+                {toolNames.map((n: string, idx: number) => (
+                  <span key={`${n}-${idx}`}>
+                    <code className="bg-white/60 dark:bg-gray-800 px-1 py-0.5 rounded">{n}</code>
+                    {idx < toolNames.length - 1 ? ', ' : ''}
+                  </span>
                 ))}
               </div>
-            </details>
+            )}
+
+            {message.tool_results && message.tool_results.length > 0 && (
+              <details className="bg-gray-50 dark:bg-gray-900 px-2 py-1 rounded border border-gray-200 dark:border-gray-700">
+                <summary className="cursor-pointer text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white font-semibold">
+                  Tool response{message.tool_results.length ? ` (${message.tool_results.length})` : ''}
+                </summary>
+                <div className="mt-2 space-y-2">
+                  {message.tool_results.map((result: any, idx: number) => (
+                    <div key={idx} className="bg-white dark:bg-gray-950 p-2 rounded border border-gray-200 dark:border-gray-700">
+                      <div className="font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                        {result.name || 'Result'}
+                      </div>
+                      <pre className="text-xs mt-1 overflow-x-auto text-gray-600 dark:text-gray-400 whitespace-pre-wrap">
+                        {typeof result.result === 'string'
+                          ? result.result
+                          : JSON.stringify(result.result, null, 2)}
+                      </pre>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
           </div>
         )}
 
