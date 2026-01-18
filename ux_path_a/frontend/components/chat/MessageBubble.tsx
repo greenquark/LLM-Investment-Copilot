@@ -192,15 +192,19 @@ export default function MessageBubble({ message, showMeta = false }: MessageBubb
         {showMeta && !isUser && (toolNames.length > 0 || (message.tool_results && message.tool_results.length > 0)) && (
           <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 space-y-2 text-xs">
             {toolNames.length > 0 && (
-              <div className="bg-gray-50 dark:bg-gray-900 px-2 py-1 rounded border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300">
-                <span className="font-semibold">Tool used:</span>{' '}
-                {toolNames.map((n: string, idx: number) => (
-                  <span key={`${n}-${idx}`}>
-                    <code className="bg-white/60 dark:bg-gray-800 px-1 py-0.5 rounded">{n}</code>
-                    {idx < toolNames.length - 1 ? ', ' : ''}
-                  </span>
-                ))}
-              </div>
+              <details className="bg-gray-50 dark:bg-gray-900 px-2 py-1 rounded border border-gray-200 dark:border-gray-700">
+                <summary className="cursor-pointer text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white font-semibold">
+                  Tool used{toolNames.length ? ` (${toolNames.length})` : ''}
+                </summary>
+                <div className="mt-2 text-gray-700 dark:text-gray-300">
+                  {toolNames.map((n: string, idx: number) => (
+                    <span key={`${n}-${idx}`}>
+                      <code className="bg-white/60 dark:bg-gray-800 px-1 py-0.5 rounded">{n}</code>
+                      {idx < toolNames.length - 1 ? ', ' : ''}
+                    </span>
+                  ))}
+                </div>
+              </details>
             )}
 
             {message.tool_results && message.tool_results.length > 0 && (
