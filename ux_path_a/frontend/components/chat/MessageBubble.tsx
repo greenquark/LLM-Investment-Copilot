@@ -5,10 +5,24 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
 import rehypeRaw from 'rehype-raw'
-import rehypeSanitize from 'rehype-sanitize'
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import ChartRenderer, { ChartData } from './ChartRenderer'
+
+// Allow relative links like "/disclaimer" through sanitize so markdown links work.
+const sanitizeSchema: any = {
+  ...defaultSchema,
+  attributes: {
+    ...(defaultSchema as any).attributes,
+    a: [
+      ...((((defaultSchema as any).attributes || {}).a || [])),
+      ['href'],
+      ['target'],
+      ['rel'],
+    ],
+  },
+}
 
 interface Message {
   role: string
@@ -51,7 +65,7 @@ export default function MessageBubble({ message, showMeta = false }: MessageBubb
               <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-900 rounded-md border border-gray-200 dark:border-gray-700">
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm, remarkBreaks]}
-                  rehypePlugins={[rehypeRaw, rehypeSanitize]}
+                  rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
                   className="prose prose-xs dark:prose-invert max-w-none text-gray-700 dark:text-gray-300"
                 >
                   {message.thinking_content}
@@ -78,7 +92,7 @@ export default function MessageBubble({ message, showMeta = false }: MessageBubb
                         prose-td:border prose-td:border-gray-300 dark:prose-td:border-gray-700 prose-td:p-2">
           <ReactMarkdown
             remarkPlugins={[remarkGfm, remarkBreaks]}
-            rehypePlugins={[rehypeRaw, rehypeSanitize]}
+            rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
             components={{
               code({ node, inline, className, children, ...props }: any) {
                 const match = /language-(\w+)/.exec(className || '')

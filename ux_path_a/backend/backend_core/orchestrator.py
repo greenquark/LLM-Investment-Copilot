@@ -83,6 +83,16 @@ class ChatOrchestrator:
         """
         if not payload:
             return None
+        try:
+            obj = json.loads(payload)
+            return obj if isinstance(obj, dict) else None
+        except Exception:
+            pass
+        try:
+            obj = ast.literal_eval(payload)
+            return obj if isinstance(obj, dict) else None
+        except Exception:
+            return None
 
     @staticmethod
     def _extract_yyyy_mm_dd(message: str) -> Optional[str]:
@@ -94,7 +104,25 @@ class ChatOrchestrator:
     @staticmethod
     def _message_requests_daily_bar(message: str) -> bool:
         m = (message or "").lower()
-        return any(k in m for k in ["daily bar", "daily quote", "quote", "ohlc", "open", "high", "low", "close"])
+        return any(
+            k in m
+            for k in [
+                "daily",
+                "daily bar",
+                "daily quote",
+                "daily figures",
+                "quote",
+                "ohlc",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+                "last friday",
+                "today",
+                "yesterday",
+            ]
+        )
 
     @staticmethod
     def _format_money(x: Any) -> str:
@@ -147,6 +175,7 @@ class ChatOrchestrator:
         )
         md.append("")
         md.append(f"Source: `get_bars` (timeframe: {timeframe or '1D'}, bars: {payload.get('count', len(bars))})")
+        md.append("Disclaimer: [Disclaimer](/disclaimer)")
         return "\n".join(md)
 
     @staticmethod
@@ -161,6 +190,10 @@ class ChatOrchestrator:
         out = []
         for line in lines:
             if line.strip().lower().startswith("risk & use"):
+                continue
+            if line.strip().lower().startswith("educational only"):
+                continue
+            if "not financial advice" in line.lower():
                 continue
             # Normalize "Disclaimer: /disclaimer" -> markdown link
             if line.strip() == "Disclaimer: /disclaimer":
@@ -191,19 +224,13 @@ class ChatOrchestrator:
             quote_md = cls._build_daily_bar_quote_markdown(payload, requested_date=requested_date)
             if not quote_md:
                 continue
+            # If the model dumped raw get_bars JSON / source block, replace with the standard quote.
+            looks_like_raw_dump = ("get_bars" in base) or ("Source (get_bars" in base) or ("Source:" in base and "get_bars" in base) or ("{" in base and "}" in base)
+            if looks_like_raw_dump:
+                return quote_md
             return (base + ("\n\n" if base else "") + quote_md).strip()
 
         return base
-        try:
-            obj = json.loads(payload)
-            return obj if isinstance(obj, dict) else None
-        except Exception:
-            pass
-        try:
-            obj = ast.literal_eval(payload)
-            return obj if isinstance(obj, dict) else None
-        except Exception:
-            return None
 
     @classmethod
     def _build_candlestick_chart_block(cls, bars_payload: dict) -> Optional[str]:
