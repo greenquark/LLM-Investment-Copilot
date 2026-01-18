@@ -1,5 +1,7 @@
 'use client'
 
+import Link from 'next/link'
+
 interface Session {
   id: string
   title: string
@@ -57,6 +59,17 @@ export default function SessionSidebar({
             ))}
           </div>
         )}
+      </div>
+
+      <div className="p-3 border-t border-gray-200 dark:border-gray-700">
+        <Link
+          href="/disclaimer"
+          className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Disclaimer
+        </Link>
       </div>
     </div>
   )
