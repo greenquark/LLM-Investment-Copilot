@@ -43,6 +43,14 @@ class Settings(BaseSettings):
     # Cache
     CACHE_ENABLED: bool = True
     CACHE_TTL_SECONDS: int = 3600  # 1 hour
+
+    # Web search (optional tool)
+    WEB_SEARCH_ENABLED: bool = True
+    # auto | tavily | duckduckgo
+    WEB_SEARCH_PROVIDER: str = "auto"
+    TAVILY_API_KEY: str = ""
+    WEB_SEARCH_TIMEOUT_SECONDS: float = 12.0
+    WEB_SEARCH_DEFAULT_MAX_RESULTS: int = 5
     
     # Platform integration
     PLATFORM_ROOT: Path = Path(__file__).parent.parent.parent.parent

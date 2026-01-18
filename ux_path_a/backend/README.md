@@ -25,6 +25,12 @@ FastAPI backend for the Smart Trading Copilot web chat application.
    # - OPENAI_MODEL=gpt-5-mini (or your preferred model)
    # - DEBUG=true (to enable debug endpoints and verbose logging)
    # - LOG_LEVEL=DEBUG (for maximum logging verbosity)
+   #
+   # Optional: Web search tool (for up-to-date internet info)
+   # - WEB_SEARCH_ENABLED=true
+   # - WEB_SEARCH_PROVIDER=auto  # auto|tavily|duckduckgo
+   # - TAVILY_API_KEY=...        # recommended for hosted reliability
+   # - WEB_SEARCH_TIMEOUT_SECONDS=12
    ```
    
    **Quick setup (Windows PowerShell):**

@@ -5,7 +5,7 @@ These tools enable web search capabilities for real-time information.
 Allows the LLM to search the web for current news, market information, and other data.
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 import logging
 # Use absolute imports (works in both local and Railway with PYTHONPATH=/app)
 from ux_path_a.backend.backend_core.tools.registry import Tool
@@ -69,44 +69,40 @@ class WebSearchTool(Tool):
         Returns:
             Dictionary with search results including titles, snippets, and URLs
         """
-        # Validate max_results
+        if not settings.WEB_SEARCH_ENABLED:
+            return {
+                "error": "Web search is disabled on this deployment.",
+                "query": query,
+            }
+
+        # Validate max_results (prefer settings default if caller omitted/invalid)
+        if not isinstance(max_results, int):
+            max_results = settings.WEB_SEARCH_DEFAULT_MAX_RESULTS
         max_results = max(1, min(10, max_results))
+
+        provider = (settings.WEB_SEARCH_PROVIDER or "auto").strip().lower()
+        if provider == "auto":
+            provider = "tavily" if settings.TAVILY_API_KEY else "duckduckgo"
         
         try:
-            # Try DuckDuckGo search (free, no API key required)
-            try:
-                from duckduckgo_search import DDGS
-                
-                logger.info(f"Executing web search: '{query}' (max_results={max_results})")
-                
-                with DDGS() as ddgs:
-                    results = []
-                    for r in ddgs.text(query, max_results=max_results):
-                        results.append({
-                            "title": r.get("title", ""),
-                            "snippet": r.get("body", ""),
-                            "url": r.get("href", ""),
-                        })
-                    
-                    logger.info(f"Web search returned {len(results)} results for query: '{query}'")
-                    
+            logger.info(f"Executing web search ({provider}): '{query}' (max_results={max_results})")
+
+            if provider == "tavily":
+                if not settings.TAVILY_API_KEY:
                     return {
+                        "error": "WEB_SEARCH_PROVIDER is set to tavily but TAVILY_API_KEY is not configured.",
                         "query": query,
-                        "results": results,
-                        "count": len(results),
-                        "provider": "duckduckgo",
+                        "provider": "tavily",
                     }
-                    
-            except ImportError:
-                logger.warning("duckduckgo-search not installed. Install with: pip install duckduckgo-search")
-                return {
-                    "error": "Web search capability not configured. Install duckduckgo-search: pip install duckduckgo-search",
-                    "query": query,
-                }
-            except Exception as e:
-                logger.error(f"Error executing DuckDuckGo search: {e}", exc_info=True)
-                # Try fallback if available
-                return await self._fallback_search(query, max_results)
+                return await self._tavily_search(query, max_results)
+
+            if provider == "duckduckgo":
+                return await self._duckduckgo_search(query, max_results)
+
+            return {
+                "error": f"Unknown WEB_SEARCH_PROVIDER: {provider}. Use auto|tavily|duckduckgo.",
+                "query": query,
+            }
                 
         except Exception as e:
             logger.error(f"Error in web_search: {e}", exc_info=True)
@@ -114,6 +110,126 @@ class WebSearchTool(Tool):
                 "error": f"Search failed: {str(e)}",
                 "query": query,
             }
+
+    @staticmethod
+    def _results_to_markdown(results: list) -> str:
+        lines = []
+        for r in results:
+            if not isinstance(r, dict):
+                continue
+            title = (r.get("title") or "").strip()
+            url = (r.get("url") or "").strip()
+            snippet = (r.get("snippet") or "").strip()
+            if not title and not url:
+                continue
+            if title and url:
+                line = f"- [{title}]({url})"
+            elif url:
+                line = f"- {url}"
+            else:
+                line = f"- {title}"
+            if snippet:
+                line += f" — {snippet}"
+            lines.append(line)
+        return "\n".join(lines)
+
+    async def _tavily_search(self, query: str, max_results: int) -> Dict[str, Any]:
+        """
+        Tavily Search API (reliable for hosted deployments).
+        Docs: https://docs.tavily.com/
+        """
+        import httpx
+        from datetime import datetime, timezone
+
+        timeout = settings.WEB_SEARCH_TIMEOUT_SECONDS
+        payload = {
+            "api_key": settings.TAVILY_API_KEY,
+            "query": query,
+            "max_results": max_results,
+            "search_depth": "basic",
+            "include_answer": False,
+            "include_raw_content": False,
+        }
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post("https://api.tavily.com/search", json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+
+        raw_results = data.get("results") if isinstance(data, dict) else None
+        results = []
+        if isinstance(raw_results, list):
+            for r in raw_results[:max_results]:
+                if not isinstance(r, dict):
+                    continue
+                results.append(
+                    {
+                        "title": r.get("title", "") or "",
+                        "snippet": r.get("content", "") or "",
+                        "url": r.get("url", "") or "",
+                    }
+                )
+
+        return {
+            "query": query,
+            "results": results,
+            "count": len(results),
+            "provider": "tavily",
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "results_markdown": self._results_to_markdown(results),
+        }
+
+    async def _duckduckgo_search(self, query: str, max_results: int) -> Dict[str, Any]:
+        """
+        DuckDuckGo search (no API key). This may be less reliable on hosted environments.
+        """
+        try:
+            from duckduckgo_search import DDGS
+        except ImportError:
+            logger.warning("duckduckgo-search not installed. Install with: pip install duckduckgo-search")
+            return {
+                "error": "duckduckgo-search is not installed. Install it or configure Tavily (TAVILY_API_KEY).",
+                "query": query,
+                "provider": "duckduckgo",
+            }
+
+        from datetime import datetime, timezone
+        import anyio
+
+        timeout = settings.WEB_SEARCH_TIMEOUT_SECONDS
+
+        def _run_sync():
+            results = []
+            # DDGS doesn't expose a clear per-request timeout; best-effort via underlying requests.
+            with DDGS() as ddgs:
+                for r in ddgs.text(query, max_results=max_results):
+                    results.append(
+                        {
+                            "title": r.get("title", "") or "",
+                            "snippet": r.get("body", "") or "",
+                            "url": r.get("href", "") or "",
+                        }
+                    )
+            return results
+
+        try:
+            with anyio.fail_after(timeout):
+                results = await anyio.to_thread.run_sync(_run_sync)
+        except TimeoutError:
+            return {
+                "error": f"duckduckgo search timed out after {timeout}s",
+                "query": query,
+                "provider": "duckduckgo",
+            }
+
+        return {
+            "query": query,
+            "results": results,
+            "count": len(results),
+            "provider": "duckduckgo",
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "results_markdown": self._results_to_markdown(results),
+        }
     
     async def _fallback_search(self, query: str, max_results: int) -> Dict[str, Any]:
         """
