@@ -13,17 +13,48 @@ export function useAuth() {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
+  const base64UrlDecode = (input: string) => {
+    const pad = '='.repeat((4 - (input.length % 4)) % 4)
+    const base64 = (input + pad).replace(/-/g, '+').replace(/_/g, '/')
+    return atob(base64)
+  }
+
+  const isJwtExpired = (token: string) => {
+    try {
+      const parts = token.split('.')
+      if (parts.length < 2) return true
+      const payload = JSON.parse(base64UrlDecode(parts[1]))
+      const exp = payload?.exp
+      if (typeof exp !== 'number') return false // no exp => don't treat as expired
+      const now = Math.floor(Date.now() / 1000)
+      return exp <= now
+    } catch {
+      return true // malformed token => treat as expired
+    }
+  }
+
   const checkAuth = async () => {
     // Check if user is authenticated
     const token = localStorage.getItem('auth_token')
     if (token) {
-      // Verify token by making a lightweight API call
-      // If it fails with 401, the token is invalid and will be cleared by API client
+      // If token is already expired, clear it without hitting the backend (avoids noisy 401s).
+      if (isJwtExpired(token)) {
+        setUser(null)
+        apiClient.setToken(null)
+        setLoading(false)
+        return
+      }
+
+      // Verify token by calling /api/auth/me
       try {
-        const response = await apiClient.listSessions()
+        const response = await apiClient.getMe()
         if (response.data) {
           // Token is valid, set user
-          setUser({ id: 1, username: 'user', email: 'user@example.com' })
+          setUser({
+            id: response.data.user_id,
+            username: response.data.username || 'user',
+            email: '',
+          })
         } else if (response.error) {
           // Only clear token if it's an auth error, not a network error
           // Network errors should not clear the token

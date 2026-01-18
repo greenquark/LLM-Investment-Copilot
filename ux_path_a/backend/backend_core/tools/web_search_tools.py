@@ -183,15 +183,22 @@ class WebSearchTool(Tool):
         """
         DuckDuckGo search (no API key). This may be less reliable on hosted environments.
         """
+        # Prefer the renamed package if present, fall back to the legacy name.
+        # duckduckgo_search emits a runtime warning: "renamed to ddgs"
         try:
-            from duckduckgo_search import DDGS
-        except ImportError:
-            logger.warning("duckduckgo-search not installed. Install with: pip install duckduckgo-search")
-            return {
-                "error": "duckduckgo-search is not installed. Install it or configure Tavily (TAVILY_API_KEY).",
-                "query": query,
-                "provider": "duckduckgo",
-            }
+            from ddgs import DDGS  # type: ignore
+            ddgs_pkg = "ddgs"
+        except Exception:
+            try:
+                from duckduckgo_search import DDGS  # type: ignore
+                ddgs_pkg = "duckduckgo_search"
+            except ImportError:
+                logger.warning("DuckDuckGo search package not installed. Install `ddgs` or `duckduckgo-search`.")
+                return {
+                    "error": "DuckDuckGo search is not installed. Install `ddgs` or configure Tavily (TAVILY_API_KEY).",
+                    "query": query,
+                    "provider": "duckduckgo",
+                }
 
         from datetime import datetime, timezone
         import anyio
@@ -222,14 +229,38 @@ class WebSearchTool(Tool):
                 "provider": "duckduckgo",
             }
 
-        return {
+        payload = {
             "query": query,
             "results": results,
             "count": len(results),
             "provider": "duckduckgo",
+            "provider_impl": ddgs_pkg,
             "fetched_at": datetime.now(timezone.utc).isoformat(),
             "results_markdown": self._results_to_markdown(results),
         }
+
+        # Observability: log count + top URLs (helps debug cases where HTTP 200 occurs but parsing yields 0)
+        try:
+            top_urls = [r.get("url") for r in results[:3] if isinstance(r, dict) and r.get("url")]
+        except Exception:
+            top_urls = []
+        logger.info(
+            "web_search duckduckgo completed",
+            extra={
+                "query": query,
+                "count": payload.get("count"),
+                "provider_impl": ddgs_pkg,
+                "top_urls": top_urls,
+            },
+        )
+
+        if payload.get("count", 0) == 0 and "error" not in payload:
+            payload["warning"] = (
+                "No results were parsed from DuckDuckGo search. "
+                "This can happen due to rate limits/blocks or upstream HTML changes."
+            )
+
+        return payload
     
     async def _fallback_search(self, query: str, max_results: int) -> Dict[str, Any]:
         """
