@@ -315,12 +315,13 @@ class ChatOrchestrator:
     def _normalize_disclaimer_and_risk(text: str) -> str:
         """
         - Remove per-message 'Risk & use' boilerplate (keep it in /disclaimer).
-        - Ensure disclaimer is a clickable markdown link.
+        - Ensure disclaimer is a clickable markdown link (single line).
         """
         if not text:
             return text
         lines = text.splitlines()
         out = []
+        saw_disclaimer = False
         for line in lines:
             if line.strip().lower().startswith("risk & use"):
                 continue
@@ -328,11 +329,18 @@ class ChatOrchestrator:
                 continue
             if "not financial advice" in line.lower():
                 continue
-            # Remove any disclaimer lines from assistant messages (UI provides disclaimer link)
+            # Normalize any disclaimer line to a single clickable link at the end
             if line.strip().lower().startswith("disclaimer:"):
+                saw_disclaimer = True
                 continue
             out.append(line)
-        return "\n".join(out).strip()
+        cleaned = "\n".join(out).strip()
+        disclaimer_line = "Disclaimer: [Disclaimer](/disclaimer)"
+
+        # Always include the disclaimer link once per assistant message.
+        if disclaimer_line not in cleaned:
+            cleaned = (cleaned + ("\n\n" if cleaned else "") + disclaimer_line).strip()
+        return cleaned
 
     @classmethod
     def _maybe_inject_daily_quote(cls, user_message: str, content: Optional[str], tool_results: Optional[List[Dict[str, Any]]]) -> str:
