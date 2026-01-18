@@ -175,7 +175,6 @@ class ChatOrchestrator:
         )
         md.append("")
         md.append(f"Source: `get_bars` (timeframe: {timeframe or '1D'}, bars: {payload.get('count', len(bars))})")
-        md.append("Disclaimer: [Disclaimer](/disclaimer)")
         return "\n".join(md)
 
     @staticmethod
@@ -195,9 +194,8 @@ class ChatOrchestrator:
                 continue
             if "not financial advice" in line.lower():
                 continue
-            # Normalize "Disclaimer: /disclaimer" -> markdown link
-            if line.strip() == "Disclaimer: /disclaimer":
-                out.append("Disclaimer: [Disclaimer](/disclaimer)")
+            # Remove any disclaimer lines from assistant messages (UI provides disclaimer link)
+            if line.strip().lower().startswith("disclaimer:"):
                 continue
             out.append(line)
         return "\n".join(out).strip()
@@ -600,8 +598,6 @@ class ChatOrchestrator:
 
             # Ensure chart rendering parity (frontend requires a ```chart JSON block)
             content = self._maybe_inject_chart(message, content, tool_results)
-            # Improve readability parity: inject standard daily-bar quote format when applicable
-            content = self._maybe_inject_daily_quote(message, content, tool_results)
             # Keep disclaimers as a link (and remove per-message boilerplate)
             content = self._normalize_disclaimer_and_risk(content or "")
             
