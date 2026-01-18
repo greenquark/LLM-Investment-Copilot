@@ -238,6 +238,10 @@ class ApiClient {
     }
   }
 
+  async getMe() {
+    return this.request<{ user_id: number; username?: string }>('/api/auth/me')
+  }
+
   async register(email: string, username: string, password: string) {
     return this.request('/api/auth/register', {
       method: 'POST',

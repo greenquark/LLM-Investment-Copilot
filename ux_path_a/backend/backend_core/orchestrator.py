@@ -203,6 +203,71 @@ class ChatOrchestrator:
 
         return "\n".join(out).strip()
 
+    @staticmethod
+    def _content_has_any_citation(text: str) -> bool:
+        if not text:
+            return False
+        # Markdown link or bare http(s)
+        if re.search(r"\[[^\]]+\]\((https?://[^)]+)\)", text):
+            return True
+        if re.search(r"https?://\S+", text):
+            return True
+        return False
+
+    @classmethod
+    def _maybe_append_web_sources(
+        cls,
+        user_message: str,
+        content: Optional[str],
+        tool_results: Optional[List[Dict[str, Any]]],
+    ) -> str:
+        """
+        If web_search returned results but the model response failed to cite them
+        (or incorrectly claims "no results"), append a compact Sources section.
+        """
+        base = content or ""
+        if not tool_results:
+            return base
+
+        web_payload = None
+        for tr in tool_results:
+            if not isinstance(tr, dict) or tr.get("name") != "web_search":
+                continue
+            web_payload = cls._parse_tool_result_payload(tr.get("result") if isinstance(tr.get("result"), str) else "")
+            if web_payload:
+                break
+
+        if not isinstance(web_payload, dict) or web_payload.get("error"):
+            return base
+
+        count = web_payload.get("count")
+        results_md = web_payload.get("results_markdown")
+        if not results_md or not isinstance(results_md, str):
+            return base
+        if not isinstance(count, int) or count <= 0:
+            return base
+
+        # If the model already provided citations, don't add anything.
+        if cls._content_has_any_citation(base):
+            return base
+
+        # If the model explicitly says "no results", override by appending sources.
+        lowered = base.lower()
+        claims_no_results = ("no results" in lowered) or ("returned no results" in lowered)
+
+        header = "Sources (web_search):"
+        suffix = f"{header}\n{results_md}".strip()
+
+        if claims_no_results or not base.strip():
+            return (base.strip() + ("\n\n" if base.strip() else "") + suffix).strip()
+
+        # Only append sources if the user intent likely required web search
+        m = (user_message or "").lower()
+        if any(k in m for k in ["news", "headline", "latest", "breaking", "today", "current", "update"]):
+            return (base.strip() + "\n\n" + suffix).strip()
+
+        return base
+
     @classmethod
     def _build_symbol_quote_markdown(cls, payload: dict) -> Optional[str]:
         if not isinstance(payload, dict) or payload.get("error"):
@@ -335,7 +400,7 @@ class ChatOrchestrator:
                 continue
             out.append(line)
         cleaned = "\n".join(out).strip()
-        disclaimer_line = "Disclaimer: [Disclaimer](/disclaimer)"
+        disclaimer_line = "[Disclaimer](/disclaimer)" 
 
         # Always include the disclaimer link once per assistant message.
         if disclaimer_line not in cleaned:
@@ -744,6 +809,8 @@ class ChatOrchestrator:
             content = self._maybe_inject_symbol_quote(message, content, tool_results)
             # Remove raw Source(get_bars) JSON dumps if the model includes them
             content = self._strip_source_json_blocks(content or "")
+            # If web_search returned results but the model didn't cite them, append sources.
+            content = self._maybe_append_web_sources(message, content, tool_results)
             # Keep disclaimers as a link (and remove per-message boilerplate)
             content = self._normalize_disclaimer_and_risk(content or "")
             
