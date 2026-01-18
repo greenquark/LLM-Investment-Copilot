@@ -5,7 +5,7 @@ These tools enable web search capabilities for real-time information.
 Allows the LLM to search the web for current news, market information, and other data.
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import logging
 # Use absolute imports (works in both local and Railway with PYTHONPATH=/app)
 from ux_path_a.backend.backend_core.tools.registry import Tool
@@ -183,8 +183,9 @@ class WebSearchTool(Tool):
         """
         DuckDuckGo search (no API key). This may be less reliable on hosted environments.
         """
-        # Prefer the renamed package if present, fall back to the legacy name.
-        # duckduckgo_search emits a runtime warning: "renamed to ddgs"
+        # Prefer `ddgs` (current package), fall back to legacy `duckduckgo_search` if present.
+        # DuckDuckGo search here is scraping-based and can be intermittently rate-limited/blocked,
+        # especially from shared cloud IPs.
         try:
             from ddgs import DDGS  # type: ignore
             ddgs_pkg = "ddgs"
@@ -193,7 +194,7 @@ class WebSearchTool(Tool):
                 from duckduckgo_search import DDGS  # type: ignore
                 ddgs_pkg = "duckduckgo_search"
             except ImportError:
-                logger.warning("DuckDuckGo search package not installed. Install `ddgs` or `duckduckgo-search`.")
+                logger.warning("DuckDuckGo search package not installed. Install `ddgs` (preferred) or `duckduckgo-search`.")
                 return {
                     "error": "DuckDuckGo search is not installed. Install `ddgs` or configure Tavily (TAVILY_API_KEY).",
                     "query": query,
@@ -205,29 +206,69 @@ class WebSearchTool(Tool):
 
         timeout = settings.WEB_SEARCH_TIMEOUT_SECONDS
 
-        def _run_sync():
-            results = []
-            # DDGS doesn't expose a clear per-request timeout; best-effort via underlying requests.
-            with DDGS() as ddgs:
-                for r in ddgs.text(query, max_results=max_results):
-                    results.append(
-                        {
-                            "title": r.get("title", "") or "",
-                            "snippet": r.get("body", "") or "",
-                            "url": r.get("href", "") or "",
-                        }
-                    )
-            return results
+        def _create_client() -> Any:
+            """
+            ddgs API has changed across versions; try to pass a timeout if supported,
+            but gracefully fall back when not.
+            """
+            try:
+                return DDGS(timeout=timeout)  # type: ignore[arg-type]
+            except TypeError:
+                return DDGS()
 
-        try:
-            with anyio.fail_after(timeout):
-                results = await anyio.to_thread.run_sync(_run_sync)
-        except TimeoutError:
-            return {
-                "error": f"duckduckgo search timed out after {timeout}s",
-                "query": query,
-                "provider": "duckduckgo",
-            }
+        def _parse_result(r: Any) -> Optional[Dict[str, str]]:
+            if not isinstance(r, dict):
+                return None
+            title = (r.get("title") or r.get("heading") or "").strip()
+            snippet = (r.get("body") or r.get("snippet") or r.get("content") or "").strip()
+            url = (r.get("href") or r.get("url") or r.get("link") or "").strip()
+            if not title and not url and not snippet:
+                return None
+            return {"title": title, "snippet": snippet, "url": url}
+
+        def _run_sync() -> Dict[str, Any]:
+            results = []
+            try:
+                # DDGS doesn't always expose a clear per-request timeout; best-effort via library support.
+                with _create_client() as ddgs:
+                    for r in ddgs.text(query, max_results=max_results):
+                        parsed = _parse_result(r)
+                        if parsed:
+                            results.append(parsed)
+                return {"results": results}
+            except Exception as e:
+                return {"error": str(e), "results": results}
+
+        # Retry a couple times with small backoff. This helps with transient blocks and network hiccups.
+        last_error: Optional[str] = None
+        results: list = []
+        attempts = 3
+        for attempt in range(1, attempts + 1):
+            try:
+                with anyio.fail_after(timeout):
+                    out = await anyio.to_thread.run_sync(_run_sync)
+                if isinstance(out, dict):
+                    results = out.get("results") if isinstance(out.get("results"), list) else []
+                    last_error = out.get("error") if isinstance(out.get("error"), str) and out.get("error") else None
+                else:
+                    results = []
+                    last_error = "DuckDuckGo search returned unexpected output type."
+
+                # Success path: results parsed.
+                if results:
+                    break
+
+                # No parsed results: might still be an upstream block. Only retry if we have attempts left.
+                if attempt < attempts:
+                    await anyio.sleep(0.35 * attempt)
+            except TimeoutError:
+                last_error = f"duckduckgo search timed out after {timeout}s"
+                if attempt < attempts:
+                    await anyio.sleep(0.35 * attempt)
+            except Exception as e:
+                last_error = str(e)
+                if attempt < attempts:
+                    await anyio.sleep(0.35 * attempt)
 
         payload = {
             "query": query,
@@ -238,6 +279,8 @@ class WebSearchTool(Tool):
             "fetched_at": datetime.now(timezone.utc).isoformat(),
             "results_markdown": self._results_to_markdown(results),
         }
+        if last_error:
+            payload["last_error"] = last_error
 
         # Observability: log count + top URLs (helps debug cases where HTTP 200 occurs but parsing yields 0)
         try:
@@ -251,6 +294,8 @@ class WebSearchTool(Tool):
                 "count": payload.get("count"),
                 "provider_impl": ddgs_pkg,
                 "top_urls": top_urls,
+                "attempts": attempts,
+                "had_error": bool(last_error),
             },
         )
 
