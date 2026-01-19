@@ -76,6 +76,30 @@ class Settings(BaseSettings):
         import os
         if 'PORT' in os.environ:
             self.PORT = int(os.environ['PORT'])
+
+        # Local dev convenience: allow reading secrets from config/secrets.yaml (gitignored)
+        # so developers can run tools/scripts without exporting env vars.
+        # Hosted deployments should still set env vars (Railway/Vercel).
+        if not self.TAVILY_API_KEY:
+            try:
+                secrets_path = (self.PLATFORM_ROOT / "config" / "secrets.yaml")
+                if secrets_path.exists():
+                    try:
+                        import yaml  # type: ignore
+                    except Exception:
+                        yaml = None  # type: ignore
+                    if yaml is not None:
+                        raw = secrets_path.read_text(encoding="utf-8")
+                        data = yaml.safe_load(raw) if raw.strip() else None
+                        if isinstance(data, dict):
+                            ws = data.get("web_search")
+                            if isinstance(ws, dict):
+                                key = ws.get("tavily_api_key")
+                                if isinstance(key, str) and key.strip():
+                                    self.TAVILY_API_KEY = key.strip()
+            except Exception:
+                # Never fail app startup due to missing/invalid local secrets file.
+                pass
         
         # Parse CORS_ORIGINS from string to list
         if isinstance(self.CORS_ORIGINS, str):

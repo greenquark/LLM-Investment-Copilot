@@ -33,6 +33,34 @@ def _ensure_repo_on_path() -> None:
     sys.path.insert(0, str(repo_root))
 
 
+def _maybe_load_tavily_key_from_secrets() -> str | None:
+    """
+    Local-dev convenience: read Tavily key from gitignored config/secrets.yaml.
+    Returns None if missing/unreadable.
+    """
+    try:
+        secrets_path = Path(__file__).resolve().parents[1] / "config" / "secrets.yaml"
+        if not secrets_path.exists():
+            return None
+        try:
+            import yaml  # type: ignore
+        except Exception:
+            return None
+        raw = secrets_path.read_text(encoding="utf-8")
+        data = yaml.safe_load(raw) if raw.strip() else None
+        if not isinstance(data, dict):
+            return None
+        ws = data.get("web_search")
+        if not isinstance(ws, dict):
+            return None
+        key = ws.get("tavily_api_key")
+        if isinstance(key, str) and key.strip():
+            return key.strip()
+        return None
+    except Exception:
+        return None
+
+
 def main() -> int:
     _ensure_repo_on_path()
 
@@ -55,6 +83,11 @@ def main() -> int:
     provider_effective = args.provider
     if provider_effective == "auto":
         provider_effective = "tavily" if os.environ.get("TAVILY_API_KEY") else "duckduckgo"
+
+    if provider_effective == "tavily" and not os.environ.get("TAVILY_API_KEY"):
+        key = _maybe_load_tavily_key_from_secrets()
+        if key:
+            os.environ["TAVILY_API_KEY"] = key
 
     if provider_effective == "tavily" and not os.environ.get("TAVILY_API_KEY"):
         print(
