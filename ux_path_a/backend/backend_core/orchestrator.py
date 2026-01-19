@@ -249,6 +249,72 @@ class ChatOrchestrator:
         return cleaned2.strip()
 
     @staticmethod
+    def _maybe_improve_readability_for_ticker_lists(text: str) -> str:
+        """
+        Best-effort readability pass for “sector + tickers” answers where the model
+        outputs dense lines instead of bullets/tables.
+
+        This is intentionally conservative:
+        - Only activates when we detect multiple ticker-like lines that mention price/move.
+        - Converts those lines into bullet points with bold ticker.
+        - Converts "Why this might matter:" lines into bullets.
+        - Normalizes spacing between sections.
+        """
+        if not text:
+            return text
+
+        lines = text.splitlines()
+        ticker_pat = re.compile(
+            r"^\s*([A-Z]{1,6})\s*\(([^)]+)\)\s*:\s*(.+)$"
+        )
+
+        ticker_hits = 0
+        for ln in lines:
+            m = ticker_pat.match(ln)
+            if not m:
+                continue
+            tail = m.group(3).lower()
+            if "price" in tail and ("%" in tail or "change" in tail or "+" in tail or "-" in tail):
+                ticker_hits += 1
+
+        # Only rewrite if it looks like a real ticker list.
+        if ticker_hits < 3:
+            return text
+
+        out: list[str] = []
+        for ln in lines:
+            s = ln.strip()
+            if not s:
+                # Avoid stacking too many blank lines; we'll normalize later.
+                out.append("")
+                continue
+
+            # Normalize "Why this might matter:" to a bullet.
+            if s.lower().startswith("why this might matter:"):
+                rest = s.split(":", 1)[1].strip() if ":" in s else ""
+                out.append(f"- **Why this might matter**: {rest}".rstrip())
+                continue
+
+            # Convert "TICKER (Name): ..." lines into bullets with bold ticker.
+            m = ticker_pat.match(ln)
+            if m:
+                ticker = m.group(1).strip()
+                name = m.group(2).strip()
+                tail = m.group(3).strip()
+                # Preserve if already a bullet
+                if s.startswith("- "):
+                    out.append(ln)
+                else:
+                    out.append(f"- **{ticker}** ({name}): {tail}")
+                continue
+
+            out.append(ln)
+
+        cleaned = "\n".join(out)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+        return cleaned.strip()
+
+    @staticmethod
     def _content_has_any_citation(text: str) -> bool:
         if not text:
             return False
@@ -875,6 +941,8 @@ class ChatOrchestrator:
             content = self._strip_source_json_blocks(content or "")
             # Remove tool-name leakage like "(get_symbol_data)" from the user-visible narrative.
             content = self._strip_tool_name_markers(content or "")
+            # Improve scannability for “sector + tickers” outputs (bullets/spacing).
+            content = self._maybe_improve_readability_for_ticker_lists(content or "")
             # If web_search returned results but the model didn't cite them, append sources.
             content = self._maybe_append_web_sources(message, content, tool_results)
             # Keep disclaimers as a link (and remove per-message boilerplate)

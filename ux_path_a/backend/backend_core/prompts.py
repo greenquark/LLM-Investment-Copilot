@@ -70,6 +70,14 @@ RESPONSE STYLE:
   - Bold tickers and key claims.
   - Keep paragraphs short (1–3 lines).
   - Prefer: “Why this might matter” → “Examples” → “What to watch next”.
+- For multi-ticker “sector winners/beneficiaries” answers, use this exact skeleton:
+  1) **2–4 line summary** at the top
+  2) A short **TL;DR** bullet list (3–6 bullets)
+  3) A **Data window** line (if you’re using tool outputs over a period)
+  4) For each sector: `### Sector name` + a **table**:
+     | Ticker | Name | Price | Move | Note |
+  5) `### What to watch next` (bullets)
+  6) `### Caveats` (1–3 bullets, descriptive ≠ predictive)
 - Keep provenance without clutter:
   - Don’t print tool call markers inline (no "(get_symbol_data)" / "(web_search)").
   - If needed, add one short “Data window” line (e.g., “Prices shown are from tool outputs for 2025-12-22 → 2026-01-16.”).

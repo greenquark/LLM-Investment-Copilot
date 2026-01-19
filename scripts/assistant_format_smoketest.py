@@ -42,6 +42,27 @@ Source: `get_bars` (timeframe: 1D, bars: 90)
         print(cleaned, file=sys.stderr)
         return 2
 
+    # 1b) “Sector + tickers” readability heuristic: ticker lines become bullets.
+    sector_list = """
+Data window: prices and moves shown are from tool outputs for 2025-12-22 → 2026-01-16.
+
+Defense / Aerospace
+LMT (Lockheed Martin): price 582.43, +20.44%
+NOC (Northrop Grumman): price 666.90, +14.07%
+RTX (Raytheon): price 201.92, +8.75%
+LHX (L3Harris): price 346.46, +17.40%
+Why this might matter: defense budgets often rise during regional tensions.
+""".strip()
+    improved = ChatOrchestrator._maybe_improve_readability_for_ticker_lists(sector_list)
+    if improved.count("\n- **") < 3:
+        print("FAIL: ticker list was not converted to bullets as expected", file=sys.stderr)
+        print(improved, file=sys.stderr)
+        return 5
+    if "- **Why this might matter**:" not in improved:
+        print("FAIL: why-it-matters line was not normalized", file=sys.stderr)
+        print(improved, file=sys.stderr)
+        return 6
+
     # 2) Sources appendix formatting when web_search results exist but no citations in content
     web_payload = {
         "query": "example query",
