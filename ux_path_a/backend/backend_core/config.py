@@ -51,6 +51,14 @@ class Settings(BaseSettings):
     TAVILY_API_KEY: str = ""
     WEB_SEARCH_TIMEOUT_SECONDS: float = 12.0
     WEB_SEARCH_DEFAULT_MAX_RESULTS: int = 5
+
+    # Web search: 2-step pipeline (search -> extract top docs)
+    WEB_SEARCH_EXTRACT_ENABLED: bool = True
+    # How many of the search results to extract full text for (kept small for latency/cost)
+    WEB_SEARCH_EXTRACT_MAX_DOCS: int = 3
+    # Hard cap on extracted text returned per document (avoid huge tool payloads)
+    WEB_SEARCH_EXTRACT_MAX_CHARS: int = 4000
+    WEB_SEARCH_EXTRACT_TIMEOUT_SECONDS: float = 18.0
     
     # Platform integration
     PLATFORM_ROOT: Path = Path(__file__).parent.parent.parent.parent
