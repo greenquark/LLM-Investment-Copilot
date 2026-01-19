@@ -204,6 +204,51 @@ class ChatOrchestrator:
         return "\n".join(out).strip()
 
     @staticmethod
+    def _strip_tool_name_markers(text: str) -> str:
+        """
+        Remove tool-name leakage from the user-visible narrative.
+
+        Examples we strip:
+        - "(get_symbol_data)" / "(get_bars)" / "(web_search)"
+        - "Source: `get_bars` ..." or "Data source: ... get_symbol_data ..."
+
+        We rely on the UI’s collapsible tool sections for provenance instead.
+        """
+        if not text:
+            return text
+
+        # Remove inline parenthetical markers.
+        cleaned = re.sub(r"\(\s*(get_symbol_data|get_bars|web_search)\s*\)", "", text, flags=re.IGNORECASE)
+
+        # Remove whole lines that are purely provenance/tool labels.
+        out_lines = []
+        for line in cleaned.splitlines():
+            s = line.strip()
+            lower = s.lower()
+
+            # Remove explicit "Source:" / "Data source:" lines referencing tools.
+            if (lower.startswith("source:") or lower.startswith("data source:")) and any(
+                k in lower for k in ["get_symbol_data", "get_bars", "web_search"]
+            ):
+                continue
+
+            # Remove lines that are just the tool name (with optional backticks) or common wrappers.
+            if re.fullmatch(r"`?(get_symbol_data|get_bars|web_search)`?", s, flags=re.IGNORECASE):
+                continue
+            if re.fullmatch(r"\(?(get_symbol_data|get_bars|web_search)\)?", s, flags=re.IGNORECASE):
+                continue
+            if re.fullmatch(r"source\s*\(?(get_symbol_data|get_bars|web_search)[^)]*\)?\s*:?", s, flags=re.IGNORECASE):
+                continue
+
+            out_lines.append(line)
+
+        # Normalize whitespace where markers were removed.
+        cleaned2 = "\n".join(out_lines)
+        cleaned2 = re.sub(r"[ \t]{2,}", " ", cleaned2)
+        cleaned2 = re.sub(r"\n{3,}", "\n\n", cleaned2)
+        return cleaned2.strip()
+
+    @staticmethod
     def _content_has_any_citation(text: str) -> bool:
         if not text:
             return False
@@ -255,8 +300,27 @@ class ChatOrchestrator:
         lowered = base.lower()
         claims_no_results = ("no results" in lowered) or ("returned no results" in lowered)
 
-        header = "Sources (web_search):"
-        suffix = f"{header}\n{results_md}".strip()
+        # Format a compact, scannable sources block (ChatGPT-like).
+        # Convert "- [title](url) — ..." bullets to a numbered list.
+        lines = [ln.strip() for ln in results_md.splitlines() if ln.strip()]
+        max_sources = 6
+        numbered: List[str] = []
+        n = 1
+        for ln in lines:
+            if ln.startswith("- "):
+                ln = ln[2:].strip()
+            if not ln:
+                continue
+            numbered.append(f"{n}. {ln}")
+            n += 1
+            if n > max_sources:
+                break
+
+        if not numbered:
+            return base
+
+        header = "### Sources"
+        suffix = f"{header}\n" + "\n".join(numbered)
 
         if claims_no_results or not base.strip():
             return (base.strip() + ("\n\n" if base.strip() else "") + suffix).strip()
@@ -278,23 +342,25 @@ class ChatOrchestrator:
         ts = payload.get("timestamp")
 
         md = []
-        md.append(f"I fetched the latest {symbol} quote via the data tool. All values below are taken directly from the tool output.")
+        md.append(f"### {symbol} — Quick quote")
         md.append("")
-        md.append("Quick quote (tool output)")
+        md.append("All values below are taken directly from the market-data tool output.")
         md.append("")
-        md.append(f"Symbol: {symbol}")
-        md.append(f"Current price: {current_price} (tool) - timestamp: {ts} (tool)")
-        md.append(f"Open: {payload.get('open')} (tool)")
-        md.append(f"High: {payload.get('high')} (tool)")
-        md.append(f"Low: {payload.get('low')} (tool)")
-        md.append(f"Volume (today): {cls._format_int(payload.get('volume'))} (tool)")
+        md.append(f"- **Current price**: {current_price}")
+        if ts:
+            md.append(f"- **Timestamp**: {ts}")
+        md.append(f"- **Open**: {payload.get('open')}")
+        md.append(f"- **High**: {payload.get('high')}")
+        md.append(f"- **Low**: {payload.get('low')}")
+        md.append(f"- **Volume**: {cls._format_int(payload.get('volume'))}")
 
-        tool_fields = []
-        for k in ["price_change", "price_change_pct", "bars_count"]:
-            if k in payload:
-                tool_fields.append(f"{k} = {payload.get(k)}")
-        if tool_fields:
-            md.append(f"Tool fields: {', '.join(tool_fields)} (all from the tool)")
+        # Optional extra fields (if present)
+        extras = []
+        for k in ["price_change", "price_change_pct"]:
+            if k in payload and payload.get(k) is not None:
+                extras.append(f"{k}: {payload.get(k)}")
+        if extras:
+            md.append(f"- **Change**: {', '.join(extras)}")
 
         return "\n".join(md).strip()
 
@@ -372,8 +438,6 @@ class ChatOrchestrator:
             f"{cls._format_money(chosen.get('low'))} | {cls._format_money(chosen.get('close'))} | "
             f"{cls._format_int(chosen.get('volume'))} | {ts} |"
         )
-        md.append("")
-        md.append(f"Source: `get_bars` (timeframe: {timeframe or '1D'}, bars: {payload.get('count', len(bars))})")
         return "\n".join(md)
 
     @staticmethod
@@ -809,6 +873,8 @@ class ChatOrchestrator:
             content = self._maybe_inject_symbol_quote(message, content, tool_results)
             # Remove raw Source(get_bars) JSON dumps if the model includes them
             content = self._strip_source_json_blocks(content or "")
+            # Remove tool-name leakage like "(get_symbol_data)" from the user-visible narrative.
+            content = self._strip_tool_name_markers(content or "")
             # If web_search returned results but the model didn't cite them, append sources.
             content = self._maybe_append_web_sources(message, content, tool_results)
             # Keep disclaimers as a link (and remove per-message boilerplate)
