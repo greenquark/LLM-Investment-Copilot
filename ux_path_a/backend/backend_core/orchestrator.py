@@ -248,6 +248,161 @@ class ChatOrchestrator:
         cleaned2 = re.sub(r"\n{3,}", "\n\n", cleaned2)
         return cleaned2.strip()
 
+    @classmethod
+    def _maybe_reformat_sector_beneficiaries(cls, user_message: str, text: str) -> str:
+        """
+        Heuristic reformatter for answers that look like:
+        - multiple sector headings
+        - multiple ticker lines like: "LMT (Lockheed Martin): price 582.43, +20.44%"
+        - repeated "Why this might matter:" paragraphs
+
+        Goal: produce a more ChatGPT-like, scannable layout:
+        - ### Summary + TL;DR
+        - per-sector ### headings + a compact table
+        - bullets for "Why it might matter"
+        - optional "What to watch next" + "Caveats" for geopolitics/news contexts
+        """
+        if not text:
+            return text
+        if "```chart" in text:
+            return text
+
+        # Count ticker lines to decide if we should trigger.
+        ticker_re = re.compile(
+            r"^([A-Z]{1,6})\s*\(([^)]+)\)\s*:\s*price\s*\$?(\d+(?:\.\d+)?)\s*[;,]\s*([+-]?\d+(?:\.\d+)?%)\s*$"
+        )
+        lines = [ln.rstrip() for ln in text.splitlines()]
+        ticker_matches = [ticker_re.match(ln.strip()) for ln in lines if ln.strip()]
+        ticker_count = sum(1 for m in ticker_matches if m)
+        if ticker_count < 4:
+            return text
+
+        # Helper: detect sector heading lines by "next line is ticker".
+        def _is_sector_heading(idx: int) -> bool:
+            s = lines[idx].strip()
+            if not s:
+                return False
+            if s.startswith("#") or s.startswith("-") or s.startswith("|"):
+                return False
+            if len(s) > 70:
+                return False
+            # next non-empty line must be a ticker line
+            j = idx + 1
+            while j < len(lines) and not lines[j].strip():
+                j += 1
+            if j >= len(lines):
+                return False
+            return bool(ticker_re.match(lines[j].strip()))
+
+        # Parse data window line if present.
+        data_window = None
+        for ln in lines:
+            if ln.strip().lower().startswith("data window"):
+                data_window = ln.strip().rstrip(".")
+                break
+
+        # Parse sections.
+        sections = []
+        i = 0
+        while i < len(lines):
+            if not _is_sector_heading(i):
+                i += 1
+                continue
+            sector = lines[i].strip().rstrip(":")
+            i += 1
+            # tickers
+            tickers = []
+            while i < len(lines):
+                s = lines[i].strip()
+                if not s:
+                    i += 1
+                    continue
+                m = ticker_re.match(s)
+                if not m:
+                    break
+                tickers.append(
+                    {
+                        "ticker": m.group(1),
+                        "name": m.group(2),
+                        "price": m.group(3),
+                        "move": m.group(4),
+                    }
+                )
+                i += 1
+            # rationale until next sector heading
+            rationale_lines = []
+            while i < len(lines) and not _is_sector_heading(i):
+                s = lines[i].strip()
+                if s:
+                    # normalize the common prefix
+                    if s.lower().startswith("why this might matter:"):
+                        s = s.split(":", 1)[1].strip()
+                    rationale_lines.append(s)
+                i += 1
+            rationale = " ".join(rationale_lines).strip()
+            sections.append({"sector": sector, "tickers": tickers, "rationale": rationale})
+
+        # If we parsed at least one sector, we can reformat.
+        # (Some answers only include one sector block; still worth improving.)
+        if len(sections) < 1:
+            return text
+
+        # Build TL;DR bullets from the first sentence of each rationale (best-effort).
+        tldr = []
+        for sec in sections[:6]:
+            r = sec.get("rationale") or ""
+            first = r.split(".")[0].strip()
+            if first:
+                tldr.append(f"- **{sec['sector']}**: {first}.")
+            else:
+                tldr.append(f"- **{sec['sector']}**")
+
+        out = []
+        out.append("### Summary")
+        out.append("")
+        out.append(
+            "Below are sectors and example names that *sometimes* see relative strength when geopolitical risk rises. "
+            "This is descriptive (not predictive) and educational only."
+        )
+        out.append("")
+        if tldr:
+            out.append("**TL;DR**")
+            out.append("\n".join(tldr))
+            out.append("")
+        if data_window:
+            out.append(f"**{data_window}**")
+            out.append("")
+
+        for sec in sections:
+            out.append(f"### {sec['sector']}")
+            out.append("")
+            out.append("| Ticker | Name | Price | Move |")
+            out.append("|---|---|---:|---:|")
+            for row in sec["tickers"]:
+                out.append(f"| **{row['ticker']}** | {row['name']} | {row['price']} | {row['move']} |")
+            out.append("")
+            if sec.get("rationale"):
+                out.append(f"- **Why it might matter**: {sec['rationale']}")
+                out.append("")
+
+        m = (user_message or "").lower()
+        if any(k in m for k in ["iran", "middle east", "geopolit", "headline", "news", "tension", "war", "conflict"]):
+            out.append("### What to watch next")
+            out.append("")
+            out.append("- **Oil**: spot/forward moves (Brent/WTI), crack spreads, and shipping insurance premia.")
+            out.append("- **Risk sentiment**: VIX, credit spreads, and USD strength (risk-off vs risk-on).")
+            out.append("- **Policy headlines**: sanctions, troop movements, and defense budget guidance/contract awards.")
+            out.append("- **Supply chain**: Strait of Hormuz/shipping lane disruptions and refinery outages.")
+            out.append("")
+
+        out.append("### Caveats")
+        out.append("")
+        out.append("- **Descriptive ≠ predictive**: recent outperformance doesn’t guarantee future performance.")
+        out.append("- **Single-name risk**: company-specific catalysts can dominate macro themes.")
+        out.append("- **This is educational**: consider using diversified ETFs if you’re only learning the theme.")
+
+        return "\n".join(out).strip()
+
     @staticmethod
     def _maybe_improve_readability_for_ticker_lists(text: str) -> str:
         """
@@ -941,7 +1096,9 @@ class ChatOrchestrator:
             content = self._strip_source_json_blocks(content or "")
             # Remove tool-name leakage like "(get_symbol_data)" from the user-visible narrative.
             content = self._strip_tool_name_markers(content or "")
-            # Improve scannability for “sector + tickers” outputs (bullets/spacing).
+            # Improve readability for multi-ticker sector lists (prefer tables + summary when the pattern matches).
+            content = self._maybe_reformat_sector_beneficiaries(message, content or "")
+            # Fallback readability pass for ticker lists (bullets/spacing).
             content = self._maybe_improve_readability_for_ticker_lists(content or "")
             # If web_search returned results but the model didn't cite them, append sources.
             content = self._maybe_append_web_sources(message, content, tool_results)

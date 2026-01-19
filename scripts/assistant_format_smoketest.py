@@ -42,7 +42,7 @@ Source: `get_bars` (timeframe: 1D, bars: 90)
         print(cleaned, file=sys.stderr)
         return 2
 
-    # 1b) “Sector + tickers” readability heuristic: ticker lines become bullets.
+    # 1b) “Sector + tickers” readability: prefer full reformatter (tables + summary).
     sector_list = """
 Data window: prices and moves shown are from tool outputs for 2025-12-22 → 2026-01-16.
 
@@ -53,13 +53,20 @@ RTX (Raytheon): price 201.92, +8.75%
 LHX (L3Harris): price 346.46, +17.40%
 Why this might matter: defense budgets often rise during regional tensions.
 """.strip()
-    improved = ChatOrchestrator._maybe_improve_readability_for_ticker_lists(sector_list)
-    if improved.count("\n- **") < 3:
-        print("FAIL: ticker list was not converted to bullets as expected", file=sys.stderr)
-        print(improved, file=sys.stderr)
+
+    reformatted = ChatOrchestrator._maybe_reformat_sector_beneficiaries(
+        user_message="Iran situation market reaction headlines",
+        text=sector_list,
+    )
+    if "### Summary" not in reformatted or "| Ticker | Name | Price | Move |" not in reformatted:
+        print("FAIL: sector list was not reformatted into summary + table", file=sys.stderr)
+        print(reformatted, file=sys.stderr)
         return 5
-    if "- **Why this might matter**:" not in improved:
-        print("FAIL: why-it-matters line was not normalized", file=sys.stderr)
+
+    # Fallback heuristic should still keep bullets reasonable if reformatter didn't trigger (sanity).
+    improved = ChatOrchestrator._maybe_improve_readability_for_ticker_lists(sector_list)
+    if improved.count("\n- **") < 3 or "- **Why this might matter**:" not in improved:
+        print("FAIL: fallback ticker-list readability did not produce bullets", file=sys.stderr)
         print(improved, file=sys.stderr)
         return 6
 
