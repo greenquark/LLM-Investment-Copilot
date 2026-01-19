@@ -5,7 +5,7 @@ These tools enable web search capabilities for real-time information.
 Allows the LLM to search the web for current news, market information, and other data.
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Tuple
 import logging
 # Use absolute imports (works in both local and Railway with PYTHONPATH=/app)
 from ux_path_a.backend.backend_core.tools.registry import Tool
@@ -133,6 +133,32 @@ class WebSearchTool(Tool):
             lines.append(line)
         return "\n".join(lines)
 
+    @staticmethod
+    def _truncate(text: str, max_chars: int) -> Tuple[str, bool]:
+        if not isinstance(text, str):
+            return "", False
+        if max_chars <= 0:
+            return "", True
+        if len(text) <= max_chars:
+            return text, False
+        return text[: max_chars - 1] + "…", True
+
+    @staticmethod
+    def _pick_urls(results: List[Dict[str, Any]], max_docs: int) -> List[str]:
+        urls: List[str] = []
+        seen = set()
+        for r in results:
+            url = (r.get("url") or "").strip()
+            if not url or not (url.startswith("http://") or url.startswith("https://")):
+                continue
+            if url in seen:
+                continue
+            urls.append(url)
+            seen.add(url)
+            if len(urls) >= max_docs:
+                break
+        return urls
+
     async def _tavily_search(self, query: str, max_results: int) -> Dict[str, Any]:
         """
         Tavily Search API (reliable for hosted deployments).
@@ -170,6 +196,38 @@ class WebSearchTool(Tool):
                     }
                 )
 
+        # Step 2 (optional): extract readable text for top URLs (kept small for latency/cost).
+        extracted_count = 0
+        if settings.WEB_SEARCH_EXTRACT_ENABLED and results:
+            urls = self._pick_urls(results, max(0, int(settings.WEB_SEARCH_EXTRACT_MAX_DOCS)))
+            if urls:
+                try:
+                    extracted_by_url = await self._tavily_extract(urls)
+                except Exception as e:
+                    logger.warning("tavily extract failed; returning snippets only", extra={"error": str(e)})
+                    extracted_by_url = {}
+
+                # If Tavily extract is empty, fall back to direct HTTP fetch+extract.
+                if not extracted_by_url:
+                    try:
+                        extracted_by_url = await self._http_extract(urls)
+                    except Exception as e:
+                        logger.warning("http extract failed; returning snippets only", extra={"error": str(e)})
+                        extracted_by_url = {}
+
+                for r in results:
+                    url = (r.get("url") or "").strip()
+                    if not url:
+                        continue
+                    content = extracted_by_url.get(url)
+                    if content:
+                        truncated, was_truncated = self._truncate(
+                            content, max(0, int(settings.WEB_SEARCH_EXTRACT_MAX_CHARS))
+                        )
+                        r["content"] = truncated
+                        r["content_truncated"] = was_truncated
+                        extracted_count += 1
+
         return {
             "query": query,
             "results": results,
@@ -177,7 +235,92 @@ class WebSearchTool(Tool):
             "provider": "tavily",
             "fetched_at": datetime.now(timezone.utc).isoformat(),
             "results_markdown": self._results_to_markdown(results),
+            "extracted_count": extracted_count,
         }
+
+    async def _tavily_extract(self, urls: List[str]) -> Dict[str, str]:
+        """
+        Tavily Extract API: fetch/extract readable content for a list of URLs.
+        Returns: {url: extracted_text}
+        """
+        import httpx
+
+        timeout = settings.WEB_SEARCH_EXTRACT_TIMEOUT_SECONDS
+        payload = {
+            "api_key": settings.TAVILY_API_KEY,
+            "urls": urls,
+            # These fields are tolerated/ignored if unsupported by the API version.
+            "include_images": False,
+            "extract_depth": "basic",
+            "include_raw_content": False,
+        }
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post("https://api.tavily.com/extract", json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+
+        # Be liberal in what we accept: Tavily SDKs have used different shapes.
+        # Common: {"results":[{"url":..., "content":...}, ...]}
+        raw_results = None
+        if isinstance(data, dict):
+            raw_results = data.get("results") or data.get("data") or data.get("documents")
+        if not isinstance(raw_results, list):
+            return {}
+
+        out: Dict[str, str] = {}
+        for r in raw_results:
+            if not isinstance(r, dict):
+                continue
+            url = (r.get("url") or r.get("source_url") or r.get("link") or "").strip()
+            if not url:
+                continue
+            content = r.get("content") or r.get("text") or r.get("raw_content") or ""
+            if not isinstance(content, str):
+                continue
+            content = content.strip()
+            if content:
+                out[url] = content
+        return out
+
+    async def _http_extract(self, urls: List[str]) -> Dict[str, str]:
+        """
+        Fallback extractor: fetch pages directly and extract readable text.
+        This is slower than Tavily extract, but more deterministic than returning only snippets.
+        """
+        import httpx
+        import anyio
+
+        # `trafilatura` is a robust boilerplate-removal extractor.
+        try:
+            from trafilatura import extract as trafi_extract  # type: ignore
+        except Exception:
+            return {}
+
+        timeout = float(settings.WEB_SEARCH_EXTRACT_TIMEOUT_SECONDS)
+        headers = {
+            # Some sites block empty UAs; keep it generic.
+            "User-Agent": "Mozilla/5.0 (compatible; SmartTradingCopilot/1.0; +https://example.com)",
+        }
+
+        async def _fetch_one(client: httpx.AsyncClient, url: str) -> Tuple[str, str]:
+            try:
+                resp = await client.get(url, headers=headers, follow_redirects=True)
+                resp.raise_for_status()
+                html = resp.text
+                text = trafi_extract(html, url=url, include_comments=False, include_tables=False) or ""
+                return url, (text.strip() if isinstance(text, str) else "")
+            except Exception:
+                return url, ""
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            results = await anyio.gather(*[_fetch_one(client, u) for u in urls])
+
+        out: Dict[str, str] = {}
+        for url, text in results:
+            if text:
+                out[url] = text
+        return out
 
     async def _duckduckgo_search(self, query: str, max_results: int) -> Dict[str, Any]:
         """

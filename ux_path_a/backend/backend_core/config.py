@@ -51,6 +51,14 @@ class Settings(BaseSettings):
     TAVILY_API_KEY: str = ""
     WEB_SEARCH_TIMEOUT_SECONDS: float = 12.0
     WEB_SEARCH_DEFAULT_MAX_RESULTS: int = 5
+
+    # Web search: 2-step pipeline (search -> extract top docs)
+    WEB_SEARCH_EXTRACT_ENABLED: bool = True
+    # How many of the search results to extract full text for (kept small for latency/cost)
+    WEB_SEARCH_EXTRACT_MAX_DOCS: int = 3
+    # Hard cap on extracted text returned per document (avoid huge tool payloads)
+    WEB_SEARCH_EXTRACT_MAX_CHARS: int = 4000
+    WEB_SEARCH_EXTRACT_TIMEOUT_SECONDS: float = 18.0
     
     # Platform integration
     PLATFORM_ROOT: Path = Path(__file__).parent.parent.parent.parent
@@ -68,6 +76,30 @@ class Settings(BaseSettings):
         import os
         if 'PORT' in os.environ:
             self.PORT = int(os.environ['PORT'])
+
+        # Local dev convenience: allow reading secrets from config/secrets.yaml (gitignored)
+        # so developers can run tools/scripts without exporting env vars.
+        # Hosted deployments should still set env vars (Railway/Vercel).
+        if not self.TAVILY_API_KEY:
+            try:
+                secrets_path = (self.PLATFORM_ROOT / "config" / "secrets.yaml")
+                if secrets_path.exists():
+                    try:
+                        import yaml  # type: ignore
+                    except Exception:
+                        yaml = None  # type: ignore
+                    if yaml is not None:
+                        raw = secrets_path.read_text(encoding="utf-8")
+                        data = yaml.safe_load(raw) if raw.strip() else None
+                        if isinstance(data, dict):
+                            ws = data.get("web_search")
+                            if isinstance(ws, dict):
+                                key = ws.get("tavily_api_key")
+                                if isinstance(key, str) and key.strip():
+                                    self.TAVILY_API_KEY = key.strip()
+            except Exception:
+                # Never fail app startup due to missing/invalid local secrets file.
+                pass
         
         # Parse CORS_ORIGINS from string to list
         if isinstance(self.CORS_ORIGINS, str):
