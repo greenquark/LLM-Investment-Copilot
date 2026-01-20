@@ -188,8 +188,8 @@ export default function MessageBubble({ message, showMeta = false }: MessageBubb
           </ReactMarkdown>
         </div>
 
-        {/* Tool meta (compact) */}
-        {showMeta && !isUser && (toolNames.length > 0 || (message.tool_results && message.tool_results.length > 0)) && (
+        {/* Tool panels (collapsible) */}
+        {!isUser && (toolNames.length > 0 || (message.tool_results && message.tool_results.length > 0)) && (
           <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 space-y-2 text-xs">
             {toolNames.length > 0 && (
               <details className="bg-gray-50 dark:bg-gray-900 px-2 py-1 rounded border border-gray-200 dark:border-gray-700">

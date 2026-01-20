@@ -362,7 +362,7 @@ class ChatOrchestrator:
         out.append("")
         out.append(
             "Below are sectors and example names that *sometimes* see relative strength when geopolitical risk rises. "
-            "This is descriptive (not predictive) and educational only."
+            "This is descriptive (not predictive)."
         )
         out.append("")
         if tldr:
@@ -413,7 +413,7 @@ class ChatOrchestrator:
         out.append("")
         out.append("- **Descriptive ≠ predictive**: recent outperformance doesn’t guarantee future performance.")
         out.append("- **Single-name risk**: company-specific catalysts can dominate macro themes.")
-        out.append("- **This is educational**: consider using diversified ETFs if you’re only learning the theme.")
+        out.append("- Consider diversified ETFs if you prefer broad exposure to the theme.")
 
         return "\n".join(out).strip()
 

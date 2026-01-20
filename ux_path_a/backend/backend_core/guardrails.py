@@ -144,7 +144,7 @@ class SafetyControls:
             return (
                 f"⚠️ LEVERAGE WARNING: {symbol} is a leveraged ETF. "
                 "Leveraged ETFs carry amplified risk and may experience significant losses. "
-                "Not suitable for all investors. This is for educational purposes only."
+                "Not suitable for all investors."
             )
         return None
     
@@ -157,10 +157,8 @@ class SafetyControls:
             Risk disclosure text
         """
         return (
-            "**RISK DISCLOSURE**: This analysis is for educational and research purposes only. "
-            "Not financial advice. All trading decisions carry risk. Past performance does not "
-            "guarantee future results. Consult with qualified financial advisors before making "
-            "investment decisions."
+            "**RISK DISCLOSURE**: All trading decisions carry risk. Past performance does not "
+            "guarantee future results. Consider consulting a qualified professional."
         )
 
 
