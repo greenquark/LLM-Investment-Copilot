@@ -26,6 +26,16 @@ logger = logging.getLogger(__name__)
 # Initialize orchestrator
 orchestrator = ChatOrchestrator()
 
+def _require_user_id(current_user: TokenData) -> int:
+    """
+    Ensure we have a concrete user_id from the auth token.
+
+    We treat missing user_id as an auth failure (should never happen in normal flows).
+    """
+    if current_user.user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid auth token: missing user_id")
+    return int(current_user.user_id)
+
 
 # Pydantic models
 class Message(BaseModel):
@@ -105,8 +115,14 @@ async def list_sessions(
     db: Session = Depends(get_db),
 ):
     """List all sessions for current user."""
-    # TODO: Filter by user_id from token
-    db_sessions = db.query(ChatSession).order_by(ChatSession.updated_at.desc()).all()
+    user_id = _require_user_id(current_user)
+
+    db_sessions = (
+        db.query(ChatSession)
+        .filter(ChatSession.user_id == user_id)
+        .order_by(ChatSession.updated_at.desc())
+        .all()
+    )
     
     sessions = []
     for db_session in db_sessions:
@@ -133,6 +149,39 @@ async def send_message(
 ):
     """Send a chat message and get LLM response."""
     railway_request_id = request.headers.get("x-railway-request-id") or request.headers.get("x-request-id")
+    user_id = _require_user_id(current_user)
+
+    # Get or create session
+    session_id = message.session_id
+    if not session_id:
+        # Fail fast with a clear error if LLM is not configured.
+        # Avoid creating empty sessions when the LLM is unavailable.
+        if not settings.OPENAI_API_KEY:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "LLM not configured",
+                    "message": "Missing OPENAI_API_KEY on server. Set it in Railway Variables and redeploy.",
+                    "request_id": railway_request_id,
+                },
+            )
+        # Create new session
+        session_data = await create_session(
+            SessionCreate(),
+            current_user,
+            db,
+        )
+        session_id = session_data.id
+    
+    # Verify session exists in database
+    db_session = (
+        db.query(ChatSession)
+        .filter(ChatSession.id == session_id, ChatSession.user_id == user_id)
+        .first()
+    )
+    if not db_session:
+        # 404 (not 403) to avoid leaking existence of other users' sessions.
+        raise HTTPException(status_code=404, detail="Session not found")
 
     # Fail fast with a clear error if LLM is not configured.
     # Otherwise the OpenAI SDK raises deep inside the orchestrator and becomes a generic 500.
@@ -145,22 +194,6 @@ async def send_message(
                 "request_id": railway_request_id,
             },
         )
-
-    # Get or create session
-    session_id = message.session_id
-    if not session_id:
-        # Create new session
-        session_data = await create_session(
-            SessionCreate(),
-            current_user,
-            db,
-        )
-        session_id = session_data.id
-    
-    # Verify session exists in database
-    db_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
-    if not db_session:
-        raise HTTPException(status_code=404, detail="Session not found")
     
     # Load conversation history from database
     db_messages = db.query(DBChatMessage).filter(
@@ -382,8 +415,15 @@ async def get_messages(
     db: Session = Depends(get_db),
 ):
     """Get all messages for a session."""
-    db_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    user_id = _require_user_id(current_user)
+
+    db_session = (
+        db.query(ChatSession)
+        .filter(ChatSession.id == session_id, ChatSession.user_id == user_id)
+        .first()
+    )
     if not db_session:
+        # 404 (not 403) to avoid leaking existence of other users' sessions.
         raise HTTPException(status_code=404, detail="Session not found")
     
     db_messages = db.query(DBChatMessage).filter(
