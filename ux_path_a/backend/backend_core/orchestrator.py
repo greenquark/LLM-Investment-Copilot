@@ -366,14 +366,24 @@ class ChatOrchestrator:
         )
         out.append("")
         if tldr:
-            out.append("**TL;DR**")
+            out.append("---")
+            out.append("")
+            out.append("### TL;DR")
+            out.append("")
             out.append("\n".join(tldr))
             out.append("")
         if data_window:
-            out.append(f"**{data_window}**")
+            out.append("---")
+            out.append("")
+            out.append("### Data window")
+            out.append("")
+            # Keep the original "Data window ..." line verbatim (best-effort provenance).
+            out.append(data_window if data_window.lower().startswith("data window") else f"Data window: {data_window}")
             out.append("")
 
         for sec in sections:
+            out.append("---")
+            out.append("")
             out.append(f"### {sec['sector']}")
             out.append("")
             out.append("| Ticker | Name | Price | Move |")
@@ -387,6 +397,8 @@ class ChatOrchestrator:
 
         m = (user_message or "").lower()
         if any(k in m for k in ["iran", "middle east", "geopolit", "headline", "news", "tension", "war", "conflict"]):
+            out.append("---")
+            out.append("")
             out.append("### What to watch next")
             out.append("")
             out.append("- **Oil**: spot/forward moves (Brent/WTI), crack spreads, and shipping insurance premia.")
@@ -395,6 +407,8 @@ class ChatOrchestrator:
             out.append("- **Supply chain**: Strait of Hormuz/shipping lane disruptions and refinery outages.")
             out.append("")
 
+        out.append("---")
+        out.append("")
         out.append("### Caveats")
         out.append("")
         out.append("- **Descriptive ≠ predictive**: recent outperformance doesn’t guarantee future performance.")
@@ -402,6 +416,103 @@ class ChatOrchestrator:
         out.append("- **This is educational**: consider using diversified ETFs if you’re only learning the theme.")
 
         return "\n".join(out).strip()
+
+    @staticmethod
+    def _maybe_normalize_section_titles_and_dividers(text: str) -> str:
+        """
+        Convert common section labels into ChatGPT-like markdown headers and insert horizontal rules.
+
+        This is a conservative "cleanup" pass that only activates when we see obvious
+        placeholder/meta section labels (e.g., "2–4 line summary") or bare section names.
+        """
+        if not text:
+            return text
+        if "```chart" in text:
+            return text
+
+        lines = text.splitlines()
+
+        placeholder_re = re.compile(r"^\s*\d+\s*[–-]\s*\d+\s*line\s+summary\s*$", re.IGNORECASE)
+        meta_re = re.compile(r"^\s*@.*prompts\.py.*$", re.IGNORECASE)
+
+        # Helper: next non-empty line
+        def _next_nonempty(i: int) -> str:
+            j = i + 1
+            while j < len(lines) and not lines[j].strip():
+                j += 1
+            return lines[j].strip() if j < len(lines) else ""
+
+        # Recognize simple section header lines.
+        section_map = {
+            "summary": "Summary",
+            "tl;dr": "TL;DR",
+            "tldr": "TL;DR",
+            "data window": "Data window",
+            "what to watch next": "What to watch next",
+            "caveats": "Caveats",
+        }
+
+        out: list[str] = []
+        last_was_section = False
+
+        for idx, ln in enumerate(lines):
+            s = ln.strip()
+            lower = s.lower()
+
+            # Drop common prompt/meta artifacts.
+            if placeholder_re.match(s):
+                continue
+            if meta_re.match(s):
+                continue
+
+            # Normalize standalone section labels into headings.
+            if lower in section_map:
+                if out:
+                    out.append("")
+                    out.append("---")
+                    out.append("")
+                out.append(f"### {section_map[lower]}")
+                out.append("")
+                last_was_section = True
+                continue
+
+            # "Data window: ..." style lines -> heading + content line.
+            if lower.startswith("data window"):
+                if out:
+                    out.append("")
+                    out.append("---")
+                    out.append("")
+                out.append("### Data window")
+                out.append("")
+                # keep content if present after ':' or otherwise keep line
+                if ":" in s:
+                    out.append(s.split(":", 1)[1].strip())
+                else:
+                    out.append(s)
+                out.append("")
+                last_was_section = True
+                continue
+
+            # Convert likely sector headings into ### headings if followed by a table.
+            # Example: "Defense / Aerospace" then a markdown table.
+            if s and not s.startswith("#") and not s.startswith("-") and not s.startswith("|"):
+                nxt = _next_nonempty(idx)
+                if nxt.startswith("|") or nxt.lower().startswith("ticker") or nxt.lower().startswith("name"):
+                    if out:
+                        out.append("")
+                        out.append("---")
+                        out.append("")
+                    out.append(f"### {s.rstrip(':')}")
+                    out.append("")
+                    last_was_section = True
+                    continue
+
+            out.append(ln)
+            last_was_section = False
+
+        cleaned = "\n".join(out)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+        return cleaned
 
     @staticmethod
     def _maybe_improve_readability_for_ticker_lists(text: str) -> str:
@@ -1100,6 +1211,8 @@ class ChatOrchestrator:
             content = self._maybe_reformat_sector_beneficiaries(message, content or "")
             # Fallback readability pass for ticker lists (bullets/spacing).
             content = self._maybe_improve_readability_for_ticker_lists(content or "")
+            # Normalize common section titles into ### headings and add ChatGPT-like dividers.
+            content = self._maybe_normalize_section_titles_and_dividers(content or "")
             # If web_search returned results but the model didn't cite them, append sources.
             content = self._maybe_append_web_sources(message, content, tool_results)
             # Keep disclaimers as a link (and remove per-message boilerplate)
