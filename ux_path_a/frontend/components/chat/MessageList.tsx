@@ -18,7 +18,7 @@ interface MessageListProps {
   showMessageMeta?: boolean
 }
 
-export default function MessageList({ messages, loading, showMessageMeta = false }: MessageListProps) {
+export default function MessageList({ messages, loading, showMessageMeta = true }: MessageListProps) {
   return (
     <div className="flex flex-col gap-4 p-6">
       {messages.length === 0 && (

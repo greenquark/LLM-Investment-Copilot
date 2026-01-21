@@ -136,11 +136,25 @@ class AnalyzeTrendTool(Tool):
             data_engine = create_data_engine_from_config(env_config=env, use_for="historical")
             
             # Create strategy config
-            cfg = LLMTrendDetectionConfig(
-                timeframe=timeframe,
-                symbol=symbol,
-                **strat_cfg_raw,
-            )
+            # Some configs include `symbol` and/or `timeframe`. We always prefer the tool args,
+            # so strip those keys to avoid "got multiple values for keyword argument" errors.
+            cfg_kwargs: Dict[str, Any] = strat_cfg_raw if isinstance(strat_cfg_raw, dict) else {}
+            cfg_kwargs = dict(cfg_kwargs)  # defensive copy
+            cfg_kwargs.pop("symbol", None)
+            cfg_kwargs.pop("timeframe", None)
+
+            # The config class may come from the strategy registry (custom) or the direct import fallback.
+            # Some variants accept `symbol`, some don't; same for `timeframe`.
+            import inspect
+
+            params = set(inspect.signature(LLMTrendDetectionConfig).parameters.keys())
+            ctor_kwargs: Dict[str, Any] = dict(cfg_kwargs)
+            if "timeframe" in params:
+                ctor_kwargs["timeframe"] = timeframe
+            if "symbol" in params:
+                ctor_kwargs["symbol"] = symbol
+
+            cfg = LLMTrendDetectionConfig(**ctor_kwargs)
             
             # Create strategy instance
             strategy = LLMTrendDetectionStrategy(symbol, cfg, data_engine)

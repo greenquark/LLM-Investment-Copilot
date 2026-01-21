@@ -204,6 +204,430 @@ class ChatOrchestrator:
         return "\n".join(out).strip()
 
     @staticmethod
+    def _strip_tool_name_markers(text: str) -> str:
+        """
+        Remove tool-name leakage from the user-visible narrative.
+
+        Examples we strip:
+        - "(get_symbol_data)" / "(get_bars)" / "(web_search)"
+        - "Source: `get_bars` ..." or "Data source: ... get_symbol_data ..."
+
+        We rely on the UI’s collapsible tool sections for provenance instead.
+        """
+        if not text:
+            return text
+
+        # Remove inline parenthetical markers.
+        cleaned = re.sub(r"\(\s*(get_symbol_data|get_bars|web_search)\s*\)", "", text, flags=re.IGNORECASE)
+
+        # Remove whole lines that are purely provenance/tool labels.
+        out_lines = []
+        for line in cleaned.splitlines():
+            s = line.strip()
+            lower = s.lower()
+
+            # Remove explicit "Source:" / "Data source:" lines referencing tools.
+            if (lower.startswith("source:") or lower.startswith("data source:")) and any(
+                k in lower for k in ["get_symbol_data", "get_bars", "web_search"]
+            ):
+                continue
+
+            # Remove lines that are just the tool name (with optional backticks) or common wrappers.
+            if re.fullmatch(r"`?(get_symbol_data|get_bars|web_search)`?", s, flags=re.IGNORECASE):
+                continue
+            if re.fullmatch(r"\(?(get_symbol_data|get_bars|web_search)\)?", s, flags=re.IGNORECASE):
+                continue
+            if re.fullmatch(r"source\s*\(?(get_symbol_data|get_bars|web_search)[^)]*\)?\s*:?", s, flags=re.IGNORECASE):
+                continue
+
+            out_lines.append(line)
+
+        # Normalize whitespace where markers were removed.
+        cleaned2 = "\n".join(out_lines)
+        cleaned2 = re.sub(r"[ \t]{2,}", " ", cleaned2)
+        cleaned2 = re.sub(r"\n{3,}", "\n\n", cleaned2)
+        return cleaned2.strip()
+
+    @classmethod
+    def _maybe_reformat_sector_beneficiaries(cls, user_message: str, text: str) -> str:
+        """
+        Heuristic reformatter for answers that look like:
+        - multiple sector headings
+        - multiple ticker lines like: "LMT (Lockheed Martin): price 582.43, +20.44%"
+        - repeated "Why this might matter:" paragraphs
+
+        Goal: produce a more ChatGPT-like, scannable layout:
+        - ### Summary + TL;DR
+        - per-sector ### headings + a compact table
+        - bullets for "Why it might matter"
+        - optional "What to watch next" + "Caveats" for geopolitics/news contexts
+        """
+        if not text:
+            return text
+        if "```chart" in text:
+            return text
+
+        # Count ticker lines to decide if we should trigger.
+        ticker_re = re.compile(
+            r"^([A-Z]{1,6})\s*\(([^)]+)\)\s*:\s*price\s*\$?(\d+(?:\.\d+)?)\s*[;,]\s*([+-]?\d+(?:\.\d+)?%)\s*$"
+        )
+        lines = [ln.rstrip() for ln in text.splitlines()]
+        ticker_matches = [ticker_re.match(ln.strip()) for ln in lines if ln.strip()]
+        ticker_count = sum(1 for m in ticker_matches if m)
+        if ticker_count < 4:
+            return text
+
+        # Helper: detect sector heading lines by "next line is ticker".
+        def _is_sector_heading(idx: int) -> bool:
+            s = lines[idx].strip()
+            if not s:
+                return False
+            if s.startswith("#") or s.startswith("-") or s.startswith("|"):
+                return False
+            if len(s) > 70:
+                return False
+            # next non-empty line must be a ticker line
+            j = idx + 1
+            while j < len(lines) and not lines[j].strip():
+                j += 1
+            if j >= len(lines):
+                return False
+            return bool(ticker_re.match(lines[j].strip()))
+
+        # Parse data window line if present.
+        data_window = None
+        for ln in lines:
+            if ln.strip().lower().startswith("data window"):
+                data_window = ln.strip().rstrip(".")
+                break
+
+        # Parse sections.
+        sections = []
+        i = 0
+        while i < len(lines):
+            if not _is_sector_heading(i):
+                i += 1
+                continue
+            sector = lines[i].strip().rstrip(":")
+            i += 1
+            # tickers
+            tickers = []
+            while i < len(lines):
+                s = lines[i].strip()
+                if not s:
+                    i += 1
+                    continue
+                m = ticker_re.match(s)
+                if not m:
+                    break
+                tickers.append(
+                    {
+                        "ticker": m.group(1),
+                        "name": m.group(2),
+                        "price": m.group(3),
+                        "move": m.group(4),
+                    }
+                )
+                i += 1
+            # rationale until next sector heading
+            rationale_lines = []
+            while i < len(lines) and not _is_sector_heading(i):
+                s = lines[i].strip()
+                if s:
+                    # normalize the common prefix
+                    if s.lower().startswith("why this might matter:"):
+                        s = s.split(":", 1)[1].strip()
+                    rationale_lines.append(s)
+                i += 1
+            rationale = " ".join(rationale_lines).strip()
+            sections.append({"sector": sector, "tickers": tickers, "rationale": rationale})
+
+        # If we parsed at least one sector, we can reformat.
+        # (Some answers only include one sector block; still worth improving.)
+        if len(sections) < 1:
+            return text
+
+        # Build TL;DR bullets from the first sentence of each rationale (best-effort).
+        tldr = []
+        for sec in sections[:6]:
+            r = sec.get("rationale") or ""
+            first = r.split(".")[0].strip()
+            if first:
+                tldr.append(f"- **{sec['sector']}**: {first}.")
+            else:
+                tldr.append(f"- **{sec['sector']}**")
+
+        out = []
+        out.append("### Summary")
+        out.append("")
+        out.append(
+            "Below are sectors and example names that *sometimes* see relative strength when geopolitical risk rises. "
+            "This is descriptive (not predictive) and educational only."
+        )
+        out.append("")
+        if tldr:
+            out.append("---")
+            out.append("")
+            out.append("### TL;DR")
+            out.append("")
+            out.append("\n".join(tldr))
+            out.append("")
+        if data_window:
+            out.append("---")
+            out.append("")
+            out.append("### Data window")
+            out.append("")
+            # Keep the original "Data window ..." line verbatim (best-effort provenance).
+            out.append(data_window if data_window.lower().startswith("data window") else f"Data window: {data_window}")
+            out.append("")
+
+        for sec in sections:
+            out.append("---")
+            out.append("")
+            out.append(f"### {sec['sector']}")
+            out.append("")
+            out.append("| Ticker | Name | Price | Move |")
+            out.append("|---|---|---:|---:|")
+            for row in sec["tickers"]:
+                out.append(f"| **{row['ticker']}** | {row['name']} | {row['price']} | {row['move']} |")
+            out.append("")
+            if sec.get("rationale"):
+                out.append(f"- **Why it might matter**: {sec['rationale']}")
+                out.append("")
+
+        m = (user_message or "").lower()
+        if any(k in m for k in ["iran", "middle east", "geopolit", "headline", "news", "tension", "war", "conflict"]):
+            out.append("---")
+            out.append("")
+            out.append("### What to watch next")
+            out.append("")
+            out.append("- **Oil**: spot/forward moves (Brent/WTI), crack spreads, and shipping insurance premia.")
+            out.append("- **Risk sentiment**: VIX, credit spreads, and USD strength (risk-off vs risk-on).")
+            out.append("- **Policy headlines**: sanctions, troop movements, and defense budget guidance/contract awards.")
+            out.append("- **Supply chain**: Strait of Hormuz/shipping lane disruptions and refinery outages.")
+            out.append("")
+
+        out.append("---")
+        out.append("")
+        out.append("### Caveats")
+        out.append("")
+        out.append("- **Descriptive ≠ predictive**: recent outperformance doesn’t guarantee future performance.")
+        out.append("- **Single-name risk**: company-specific catalysts can dominate macro themes.")
+        out.append("- Consider diversified ETFs if you prefer broad exposure to the theme.")
+
+        return "\n".join(out).strip()
+
+    @staticmethod
+    def _maybe_normalize_section_titles_and_dividers(text: str) -> str:
+        """
+        Convert common section labels into ChatGPT-like markdown headers and insert horizontal rules.
+
+        This is a conservative "cleanup" pass that only activates when we see obvious
+        placeholder/meta section labels (e.g., "2–4 line summary") or bare section names.
+        """
+        if not text:
+            return text
+        if "```chart" in text:
+            return text
+
+        lines = text.splitlines()
+
+        placeholder_re = re.compile(r"^\s*\d+\s*[–-]\s*\d+\s*line\s+summary\s*$", re.IGNORECASE)
+        meta_re = re.compile(r"^\s*@.*prompts\.py.*$", re.IGNORECASE)
+
+        # Helper: normalize a would-be section label
+        def _label_key(s: str) -> str:
+            s = s.strip()
+            s = re.sub(r"^[\s>*#-]+", "", s)  # leading markdown markers
+            s = re.sub(r"[\s:：]+$", "", s)  # trailing ":" etc
+            s = re.sub(r"^\*+|\*+$", "", s)  # surrounding asterisks
+            s = re.sub(r"^_+|_+$", "", s)  # surrounding underscores
+            s = s.strip().lower()
+            # common normalization
+            s = s.replace("’", "'")
+            s = re.sub(r"\s+", " ", s)
+            return s
+
+        # Helper: next non-empty line
+        def _next_nonempty(i: int) -> str:
+            j = i + 1
+            while j < len(lines) and not lines[j].strip():
+                j += 1
+            return lines[j].strip() if j < len(lines) else ""
+
+        # Recognize simple section header lines.
+        section_map = {
+            "summary": "Summary",
+            "tl;dr": "TL;DR",
+            "tldr": "TL;DR",
+            "data window": "Data window",
+            "key facts": "Key facts (tool outputs)",
+            "key facts (tool outputs)": "Key facts (tool outputs)",
+            "facts": "Key facts (tool outputs)",
+            "quick take": "Quick take",
+            "how to interpret this": "How to interpret this",
+            "how to read these signals": "How to interpret this",
+            "how to read these signals (educational)": "How to interpret this",
+            "if you're a": "If you’re a…",
+            "if youre a": "If you’re a…",
+            "what would change my view": "What would change my view",
+            "next steps": "Next steps (pick one)",
+            "next steps (pick one)": "Next steps (pick one)",
+            "practical next steps i can do for you (choose one)": "Next steps (pick one)",
+            "what to watch next": "What to watch next",
+            "caveats": "Caveats",
+        }
+
+        out: list[str] = []
+        in_code_block = False
+
+        for idx, ln in enumerate(lines):
+            s = ln.strip()
+            lower = s.lower()
+
+            # Respect fenced code blocks; do not rewrite headings/labels inside them.
+            if s.startswith("```"):
+                in_code_block = not in_code_block
+                out.append(ln)
+                continue
+            if in_code_block:
+                out.append(ln)
+                continue
+
+            # Drop common prompt/meta artifacts.
+            if placeholder_re.match(s):
+                continue
+            if meta_re.match(s):
+                continue
+
+            # Normalize existing markdown headings (### ...) to preferred titles + dividers.
+            if s.startswith("#"):
+                title = s.lstrip("#").strip()
+                key = _label_key(title)
+                if key in section_map:
+                    if out:
+                        out.append("")
+                        out.append("---")
+                        out.append("")
+                    out.append(f"### {section_map[key]}")
+                    out.append("")
+                    continue
+                out.append(ln)
+                continue
+
+            # Normalize standalone section labels into headings.
+            key = _label_key(s)
+            if key in section_map:
+                if out:
+                    out.append("")
+                    out.append("---")
+                    out.append("")
+                out.append(f"### {section_map[key]}")
+                out.append("")
+                continue
+
+            # "Data window: ..." style lines -> heading + content line.
+            if lower.startswith("data window"):
+                if out:
+                    out.append("")
+                    out.append("---")
+                    out.append("")
+                out.append("### Data window")
+                out.append("")
+                # keep content if present after ':' or otherwise keep line
+                if ":" in s:
+                    out.append(s.split(":", 1)[1].strip())
+                else:
+                    out.append(s)
+                out.append("")
+                continue
+
+            # Convert likely sector headings into ### headings if followed by a table.
+            # Example: "Defense / Aerospace" then a markdown table.
+            if s and not s.startswith("#") and not s.startswith("-") and not s.startswith("|"):
+                nxt = _next_nonempty(idx)
+                if nxt.startswith("|") or nxt.lower().startswith("ticker") or nxt.lower().startswith("name"):
+                    if out:
+                        out.append("")
+                        out.append("---")
+                        out.append("")
+                    out.append(f"### {s.rstrip(':')}")
+                    out.append("")
+                    continue
+
+            out.append(ln)
+
+        cleaned = "\n".join(out)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+        return cleaned
+
+    @staticmethod
+    def _maybe_improve_readability_for_ticker_lists(text: str) -> str:
+        """
+        Best-effort readability pass for “sector + tickers” answers where the model
+        outputs dense lines instead of bullets/tables.
+
+        This is intentionally conservative:
+        - Only activates when we detect multiple ticker-like lines that mention price/move.
+        - Converts those lines into bullet points with bold ticker.
+        - Converts "Why this might matter:" lines into bullets.
+        - Normalizes spacing between sections.
+        """
+        if not text:
+            return text
+
+        lines = text.splitlines()
+        ticker_pat = re.compile(
+            r"^\s*([A-Z]{1,6})\s*\(([^)]+)\)\s*:\s*(.+)$"
+        )
+
+        ticker_hits = 0
+        for ln in lines:
+            m = ticker_pat.match(ln)
+            if not m:
+                continue
+            tail = m.group(3).lower()
+            if "price" in tail and ("%" in tail or "change" in tail or "+" in tail or "-" in tail):
+                ticker_hits += 1
+
+        # Only rewrite if it looks like a real ticker list.
+        if ticker_hits < 3:
+            return text
+
+        out: list[str] = []
+        for ln in lines:
+            s = ln.strip()
+            if not s:
+                # Avoid stacking too many blank lines; we'll normalize later.
+                out.append("")
+                continue
+
+            # Normalize "Why this might matter:" to a bullet.
+            if s.lower().startswith("why this might matter:"):
+                rest = s.split(":", 1)[1].strip() if ":" in s else ""
+                out.append(f"- **Why this might matter**: {rest}".rstrip())
+                continue
+
+            # Convert "TICKER (Name): ..." lines into bullets with bold ticker.
+            m = ticker_pat.match(ln)
+            if m:
+                ticker = m.group(1).strip()
+                name = m.group(2).strip()
+                tail = m.group(3).strip()
+                # Preserve if already a bullet
+                if s.startswith("- "):
+                    out.append(ln)
+                else:
+                    out.append(f"- **{ticker}** ({name}): {tail}")
+                continue
+
+            out.append(ln)
+
+        cleaned = "\n".join(out)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+        return cleaned.strip()
+
+    @staticmethod
     def _content_has_any_citation(text: str) -> bool:
         if not text:
             return False
@@ -278,23 +702,37 @@ class ChatOrchestrator:
         ts = payload.get("timestamp")
 
         md = []
-        md.append(f"I fetched the latest {symbol} quote via the data tool. All values below are taken directly from the tool output.")
+        # ChatGPT-like compact “card” snapshot (markdown blockquote).
+        low = payload.get("low")
+        high = payload.get("high")
+        md.append(f"> **{symbol} — Price snapshot**")
+        md.append(f"> - **Price**: {cls._format_money(current_price)}")
+        if ts:
+            md.append(f"> - **As of**: {ts}")
+        if low is not None and high is not None:
+            md.append(f"> - **Day range**: {cls._format_money(low)}–{cls._format_money(high)}")
+        md.append(f"> - **Volume**: {cls._format_int(payload.get('volume'))}")
         md.append("")
-        md.append("Quick quote (tool output)")
-        md.append("")
-        md.append(f"Symbol: {symbol}")
-        md.append(f"Current price: {current_price} (tool) - timestamp: {ts} (tool)")
-        md.append(f"Open: {payload.get('open')} (tool)")
-        md.append(f"High: {payload.get('high')} (tool)")
-        md.append(f"Low: {payload.get('low')} (tool)")
-        md.append(f"Volume (today): {cls._format_int(payload.get('volume'))} (tool)")
 
-        tool_fields = []
-        for k in ["price_change", "price_change_pct", "bars_count"]:
-            if k in payload:
-                tool_fields.append(f"{k} = {payload.get(k)}")
-        if tool_fields:
-            md.append(f"Tool fields: {', '.join(tool_fields)} (all from the tool)")
+        md.append(f"### {symbol} — Quick quote (tool output)")
+        md.append("")
+        md.append("All values below are taken directly from the market-data tool output.")
+        md.append("")
+        md.append(f"- **Current price**: {cls._format_money(current_price)}")
+        if ts:
+            md.append(f"- **Timestamp**: {ts}")
+        md.append(f"- **Open**: {cls._format_money(payload.get('open'))}")
+        md.append(f"- **High**: {cls._format_money(payload.get('high'))}")
+        md.append(f"- **Low**: {cls._format_money(payload.get('low'))}")
+        md.append(f"- **Volume**: {cls._format_int(payload.get('volume'))}")
+
+        # Optional extra fields (if present)
+        extras = []
+        for k in ["price_change", "price_change_pct"]:
+            if k in payload and payload.get(k) is not None:
+                extras.append(f"{k}: {payload.get(k)}")
+        if extras:
+            md.append(f"- **Change**: {', '.join(extras)}")
 
         return "\n".join(md).strip()
 
