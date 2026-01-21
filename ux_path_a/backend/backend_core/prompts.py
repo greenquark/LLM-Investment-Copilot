@@ -64,6 +64,7 @@ RESPONSE STYLE:
   - Bold tickers and key claims.
   - Keep paragraphs short (1–3 lines).
   - Prefer: “Why this might matter” → “Examples” → “What to watch next”.
+  - Optional “card” look (no custom UI): you MAY add a short markdown blockquote titled “{{TICKER}} — Price snapshot” with 2–4 bullets before detailed sections.
 - For multi-ticker “sector winners/beneficiaries” answers, use this exact skeleton:
   ### Summary
   (2–4 lines)

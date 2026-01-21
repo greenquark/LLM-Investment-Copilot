@@ -362,7 +362,7 @@ class ChatOrchestrator:
         out.append("")
         out.append(
             "Below are sectors and example names that *sometimes* see relative strength when geopolitical risk rises. "
-            "This is descriptive (not predictive)."
+            "This is descriptive (not predictive) and educational only."
         )
         out.append("")
         if tldr:
@@ -435,6 +435,18 @@ class ChatOrchestrator:
         placeholder_re = re.compile(r"^\s*\d+\s*[–-]\s*\d+\s*line\s+summary\s*$", re.IGNORECASE)
         meta_re = re.compile(r"^\s*@.*prompts\.py.*$", re.IGNORECASE)
 
+        # Helper: normalize a would-be section label
+        def _label_key(s: str) -> str:
+            s = s.strip()
+            s = re.sub(r"^[\s>*#-]+", "", s)  # leading markdown markers
+            s = re.sub(r"[\s:：]+$", "", s)  # trailing ":" etc
+            s = re.sub(r"^\*+|\*+$", "", s)  # surrounding asterisks
+            s = re.sub(r"^_+|_+$", "", s)  # surrounding underscores
+            s = s.strip().lower()
+            # common normalization
+            s = s.replace("’", "'")
+            s = re.sub(r"\s+", " ", s)
+            return s
         # Helper: next non-empty line
         def _next_nonempty(i: int) -> str:
             j = i + 1
@@ -448,32 +460,68 @@ class ChatOrchestrator:
             "tl;dr": "TL;DR",
             "tldr": "TL;DR",
             "data window": "Data window",
+            "key facts": "Key facts (tool outputs)",
+            "key facts (tool outputs)": "Key facts (tool outputs)",
+            "facts": "Key facts (tool outputs)",
+            "quick take": "Quick take",
+            "how to interpret this": "How to interpret this",
+            "how to read these signals": "How to interpret this",
+            "how to read these signals (educational)": "How to interpret this",
+            "if you're a": "If you’re a…",
+            "if youre a": "If you’re a…",
+            "what would change my view": "What would change my view",
+            "next steps": "Next steps (pick one)",
+            "next steps (pick one)": "Next steps (pick one)",
+            "practical next steps i can do for you (choose one)": "Next steps (pick one)",
             "what to watch next": "What to watch next",
             "caveats": "Caveats",
         }
 
         out: list[str] = []
-        last_was_section = False
+        in_code_block = False
 
         for idx, ln in enumerate(lines):
             s = ln.strip()
             lower = s.lower()
 
+            # Respect fenced code blocks; do not rewrite headings/labels inside them.
+            if s.startswith("```"):
+                in_code_block = not in_code_block
+                out.append(ln)
+                continue
+            if in_code_block:
+                out.append(ln)
+                continue
             # Drop common prompt/meta artifacts.
             if placeholder_re.match(s):
                 continue
             if meta_re.match(s):
                 continue
 
+            # Normalize existing markdown headings (### ...) to preferred titles + dividers.
+            if s.startswith("#"):
+                title = s.lstrip("#").strip()
+                key = _label_key(title)
+                if key in section_map:
+                    if out:
+                        out.append("")
+                        out.append("---")
+                        out.append("")
+                    out.append(f"### {section_map[key]}")
+                    out.append("")
+                    continue
+                out.append(ln)
+                continue
+
             # Normalize standalone section labels into headings.
-            if lower in section_map:
+            key = _label_key(s)
+            if key in section_map:
                 if out:
                     out.append("")
                     out.append("---")
                     out.append("")
-                out.append(f"### {section_map[lower]}")
+                out.append(f"### {section_map[key]}")
                 out.append("")
-                last_was_section = True
                 continue
 
             # "Data window: ..." style lines -> heading + content line.
@@ -490,7 +538,6 @@ class ChatOrchestrator:
                 else:
                     out.append(s)
                 out.append("")
-                last_was_section = True
                 continue
 
             # Convert likely sector headings into ### headings if followed by a table.
@@ -504,11 +551,9 @@ class ChatOrchestrator:
                         out.append("")
                     out.append(f"### {s.rstrip(':')}")
                     out.append("")
-                    last_was_section = True
                     continue
 
             out.append(ln)
-            last_was_section = False
 
         cleaned = "\n".join(out)
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
@@ -674,18 +719,29 @@ class ChatOrchestrator:
         ts = payload.get("timestamp")
 
         md = []
-        md.append(f"### {symbol} — Quick quote")
+        # ChatGPT-like compact “card” snapshot (markdown blockquote).
+        low = payload.get("low")
+        high = payload.get("high")
+        md.append(f"> **{symbol} — Price snapshot**")
+        md.append(f"> - **Price**: {cls._format_money(current_price)}")
+        if ts:
+            md.append(f"> - **As of**: {ts}")
+        if low is not None and high is not None:
+            md.append(f"> - **Day range**: {cls._format_money(low)}–{cls._format_money(high)}")
+        md.append(f"> - **Volume**: {cls._format_int(payload.get('volume'))}")
+        md.append("")
+
+        md.append(f"### {symbol} — Quick quote (tool output)")
         md.append("")
         md.append("All values below are taken directly from the market-data tool output.")
         md.append("")
-        md.append(f"- **Current price**: {current_price}")
+        md.append(f"- **Current price**: {cls._format_money(current_price)}")
         if ts:
             md.append(f"- **Timestamp**: {ts}")
-        md.append(f"- **Open**: {payload.get('open')}")
-        md.append(f"- **High**: {payload.get('high')}")
-        md.append(f"- **Low**: {payload.get('low')}")
+        md.append(f"- **Open**: {cls._format_money(payload.get('open'))}")
+        md.append(f"- **High**: {cls._format_money(payload.get('high'))}")
+        md.append(f"- **Low**: {cls._format_money(payload.get('low'))}")
         md.append(f"- **Volume**: {cls._format_int(payload.get('volume'))}")
-
         # Optional extra fields (if present)
         extras = []
         for k in ["price_change", "price_change_pct"]:

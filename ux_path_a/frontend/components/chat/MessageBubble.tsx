@@ -38,7 +38,7 @@ interface MessageBubbleProps {
   showMeta?: boolean
 }
 
-export default function MessageBubble({ message, showMeta = false }: MessageBubbleProps) {
+export default function MessageBubble({ message, showMeta = true }: MessageBubbleProps) {
   const isUser = message.role === 'user'
   const [showThinking, setShowThinking] = React.useState(false)
 
@@ -95,6 +95,7 @@ export default function MessageBubble({ message, showMeta = false }: MessageBubb
                         prose-pre:bg-transparent prose-pre:p-0
                         prose-blockquote:border-l-4 prose-blockquote:border-gray-300 dark:prose-blockquote:border-gray-600 prose-blockquote:pl-4 prose-blockquote:italic
                         prose-ul:list-disc prose-ol:list-decimal
+                        prose-hr:my-6 prose-hr:border-gray-200 dark:prose-hr:border-gray-700
                         prose-table:w-full prose-table:border-collapse prose-table:border prose-table:border-gray-300 dark:prose-table:border-gray-700 prose-table:my-4
                         prose-th:border prose-th:border-gray-300 dark:prose-th:border-gray-700 prose-th:bg-gray-100 dark:prose-th:bg-gray-800 prose-th:p-2 prose-th:font-semibold prose-th:text-left
                         prose-td:border prose-td:border-gray-300 dark:prose-td:border-gray-700 prose-td:p-2">
